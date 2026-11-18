@@ -87,6 +87,8 @@ public final class ModuleEngine {
     private static int sBallStyle = RuleClient.DEFAULT_BALL_STYLE;
     private static int sBallSizeDp = RuleClient.DEFAULT_BALL_SIZE_DP;
     private static int sBallAlpha = RuleClient.DEFAULT_BALL_ALPHA;
+    /** v4：悬浮球是否开启（来自 provider 的 ball_visible 列；默认关，只能手动开）。 */
+    private static boolean sBallVisible = false;
 
     /** 图层选择时边框颜色按深度循环。 */
     private static final int[] DEPTH_COLORS = {
@@ -321,6 +323,11 @@ public final class ModuleEngine {
         try {
             // 0. 同步 provider 里的悬浮球设置（样式 / 尺寸 / 透明度），变更会即时作用到已存在的球
             updateBallSettings(data);
+            if (sBallVisible) {
+                ensureBall(activity, state);
+            } else {
+                removeOwnBall(state);
+            }
             ViewGroup decor = state.decor;
             if (decor == null) {
                 Window window = activity.getWindow();
@@ -708,6 +715,11 @@ public final class ModuleEngine {
         if (state == null || state.decor == null) {
             return;
         }
+        if (!sBallVisible) {
+            // v4：悬浮球未手动开启时，任何界面都不显示
+            removeOwnBall(state);
+            return;
+        }
         if (state.ball != null) {
             // 回到前台时重新套一次设置（主应用可能刚改过样式/尺寸/透明度）
             applyBallSettings(state);
@@ -850,7 +862,10 @@ public final class ModuleEngine {
         if (style < BALL_STYLE_EYE || style > BALL_STYLE_SLASH) {
             style = RuleClient.DEFAULT_BALL_STYLE;
         }
-        if (style == sBallStyle && sizeDp == sBallSizeDp && alpha == sBallAlpha) {
+        boolean visible = data.ballVisible;
+        boolean visibilityChanged = visible != sBallVisible;
+        sBallVisible = visible;
+        if (style == sBallStyle && sizeDp == sBallSizeDp && alpha == sBallAlpha && !visibilityChanged) {
             return;
         }
         sBallStyle = style;
@@ -861,8 +876,26 @@ public final class ModuleEngine {
             states = new ArrayList<ActivityState>(STATES.values());
         }
         for (int i = 0; i < states.size(); i++) {
-            applyBallSettings(states.get(i));
+            ActivityState state = states.get(i);
+            if (state == null) {
+                continue;
+            }
+            if (sBallVisible) {
+                applyBallSettings(state);
+                bringBallToFront(state);
+            } else {
+                removeOwnBall(state);
+            }
         }
+    }
+
+    /** 移除某个 Activity 上的模块悬浮球（可重复调用）。 */
+    private static void removeOwnBall(ActivityState state) {
+        if (state == null || state.ball == null) {
+            return;
+        }
+        removeView(state, state.ball);
+        state.ball = null;
     }
 
     /** 把当前悬浮球设置套到某个 Activity 的球上（尺寸变化会重新裁剪位置）。 */

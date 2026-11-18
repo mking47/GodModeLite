@@ -5,4 +5,5 @@
     <color name="gm_accent">#4CAF50</color>
     <color name="gm_text">#F2F2F2</color>
     <color name="gm_text_sub">#9E9E9E</color>
+    <color name="gm_icon_bg">#0E1A26</color>
 </resources>

@@ -51,9 +51,11 @@ public class RulesProvider extends ContentProvider {
     public static final String COL_BALL_SIZE = "ball_size";
     /** 列名：悬浮球透明度（v3，150~255）。 */
     public static final String COL_BALL_ALPHA = "ball_alpha";
+    /** 列名：悬浮球是否开启（v4，0/1；手动开关才为 1）。 */
+    public static final String COL_BALL_VISIBLE = "ball_visible";
 
     private static final String[] COLUMNS = {COL_ID, COL_PKG, COL_JSON, COL_BLOCKING,
-            COL_BALL_STYLE, COL_BALL_SIZE, COL_BALL_ALPHA};
+            COL_BALL_STYLE, COL_BALL_SIZE, COL_BALL_ALPHA, COL_BALL_VISIBLE};
 
     @Override
     public boolean onCreate() {
@@ -90,7 +92,7 @@ public class RulesProvider extends ContentProvider {
                 // 单包查询：恒返回 1 行，json 为数组字符串（模块端按包名解析）。
                 List<Rule> rules = ConfigStore.rulesFor(pkg);
                 cursor.addRow(new Object[]{0, pkg, rulesToJsonArray(rules), blocking,
-                        ballStyle, ballSize, ballAlpha});
+                        ballStyle, ballSize, ballAlpha, ConfigStore.isBallVisible() ? 1 : 0});
                 return cursor;
             }
 
@@ -105,7 +107,7 @@ public class RulesProvider extends ContentProvider {
                     continue;
                 }
                 cursor.addRow(new Object[]{i + 1, r.pkg, json, blocking,
-                        ballStyle, ballSize, ballAlpha});
+                        ballStyle, ballSize, ballAlpha, ConfigStore.isBallVisible() ? 1 : 0});
             }
             return cursor;
         } catch (Throwable t) {

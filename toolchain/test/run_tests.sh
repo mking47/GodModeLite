@@ -14,5 +14,9 @@ javac -source 8 -target 8 -bootclasspath "$AJ" -classpath "$JSON" -encoding UTF-
   -d "$OUT" \
   "$ROOT/app/src/com/dsh/godmodelite/core/Rule.java" \
   "$ROOT/app/src/com/dsh/godmodelite/core/BackupManager.java" \
-  "$ROOT/toolchain/test/TestBackup.java" 2>&1 | grep -v "bootstrap class path\|obsolete\|warning\|unchecked" || true
+  "$ROOT/app/src/com/dsh/godmodelite/core/ConfigStore.java" \
+  "$ROOT/app/src/com/dsh/godmodelite/core/AutoBackupManager.java" \
+  "$ROOT/toolchain/test/TestBackup.java" \
+  "$ROOT/toolchain/test/TestAutoBackup.java" 2>&1 | grep -v "bootstrap class path\|obsolete\|warning\|unchecked" || true
 java -cp "$OUT:$JSON:$AJ" TestBackup
+java -cp "$OUT:$JSON:$AJ" TestAutoBackup

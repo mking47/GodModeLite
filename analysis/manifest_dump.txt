@@ -1,0 +1,218 @@
+### aapt2 dump badging
+package: name='com.viewblocker.jrsen' versionCode='23' versionName='3.0.0-beta3' platformBuildVersionName='12' platformBuildVersionCode='31' compileSdkVersion='31' compileSdkVersionCodename='12'
+sdkVersion:'21'
+targetSdkVersion:'31'
+uses-permission: name='android.permission.INTERNET'
+uses-permission: name='android.permission.WRITE_EXTERNAL_STORAGE'
+uses-permission: name='android.permission.QUERY_ALL_PACKAGES'
+uses-permission-sdk-23: name='android.permission.FOREGROUND_SERVICE'
+application-label:'上帝模式'
+application-label-af:'上帝模式'
+application-label-am:'上帝模式'
+application-label-ar:'上帝模式'
+application-label-as:'上帝模式'
+application-label-az:'上帝模式'
+application-label-be:'上帝模式'
+application-label-bg:'上帝模式'
+application-label-bn:'上帝模式'
+application-label-bs:'上帝模式'
+application-label-ca:'上帝模式'
+application-label-cs:'上帝模式'
+application-label-da:'上帝模式'
+application-label-de:'上帝模式'
+application-label-el:'上帝模式'
+application-label-en:'GodMode'
+application-label-en-AU:'GodMode'
+application-label-en-CA:'GodMode'
+application-label-en-GB:'GodMode'
+application-label-en-IN:'GodMode'
+application-label-en-XC:'GodMode'
+application-label-es:'上帝模式'
+application-label-es-419:'上帝模式'
+application-label-es-US:'上帝模式'
+application-label-et:'上帝模式'
+application-label-eu:'上帝模式'
+application-label-fa:'上帝模式'
+application-label-fi:'上帝模式'
+application-label-fr:'上帝模式'
+application-label-fr-CA:'上帝模式'
+application-label-gl:'上帝模式'
+application-label-gu:'上帝模式'
+application-label-hi:'上帝模式'
+application-label-hr:'上帝模式'
+application-label-hu:'上帝模式'
+application-label-hy:'上帝模式'
+application-label-in:'上帝模式'
+application-label-is:'上帝模式'
+application-label-it:'上帝模式'
+application-label-iw:'上帝模式'
+application-label-ja:'上帝模式'
+application-label-ka:'上帝模式'
+application-label-kk:'上帝模式'
+application-label-km:'上帝模式'
+application-label-kn:'上帝模式'
+application-label-ko:'上帝模式'
+application-label-ky:'上帝模式'
+application-label-lo:'上帝模式'
+application-label-lt:'上帝模式'
+application-label-lv:'上帝模式'
+application-label-mk:'上帝模式'
+application-label-ml:'上帝模式'
+application-label-mn:'上帝模式'
+application-label-mr:'上帝模式'
+application-label-ms:'上帝模式'
+application-label-my:'上帝模式'
+application-label-nb:'上帝模式'
+application-label-ne:'上帝模式'
+application-label-nl:'上帝模式'
+application-label-or:'上帝模式'
+application-label-pa:'上帝模式'
+application-label-pl:'上帝模式'
+application-label-pt:'上帝模式'
+application-label-pt-BR:'上帝模式'
+application-label-pt-PT:'上帝模式'
+application-label-ro:'上帝模式'
+application-label-ru:'上帝模式'
+application-label-si:'上帝模式'
+application-label-sk:'上帝模式'
+application-label-sl:'上帝模式'
+application-label-sq:'上帝模式'
+application-label-sr:'上帝模式'
+application-label-sr-Latn:'上帝模式'
+application-label-sv:'上帝模式'
+application-label-sw:'上帝模式'
+application-label-ta:'上帝模式'
+application-label-te:'上帝模式'
+application-label-th:'上帝模式'
+application-label-tl:'上帝模式'
+application-label-tr:'上帝模式'
+application-label-uk:'上帝模式'
+application-label-ur:'上帝模式'
+application-label-uz:'上帝模式'
+application-label-vi:'上帝模式'
+application-label-zh-CN:'上帝模式'
+application-label-zh-HK:'上帝模式'
+application-label-zh-TW:'上帝模式'
+application-label-zu:'上帝模式'
+application-icon-120:'res/uF.xml'
+application-icon-160:'res/uF.xml'
+application-icon-240:'res/uF.xml'
+application-icon-320:'res/uF.xml'
+application-icon-480:'res/uF.xml'
+application-icon-640:'res/uF.xml'
+application-icon-65534:'res/uF.xml'
+application-icon-65535:'res/uF.xml'
+application: label='上帝模式' icon='res/uF.xml'
+uses-library-not-required:'androidx.window.extensions'
+uses-library-not-required:'androidx.window.sidecar'
+uses-permission: name='android.permission.READ_EXTERNAL_STORAGE'
+uses-implied-permission: name='android.permission.READ_EXTERNAL_STORAGE' reason='requested WRITE_EXTERNAL_STORAGE'
+feature-group: label=''
+  uses-feature: name='android.hardware.faketouch'
+  uses-implied-feature: name='android.hardware.faketouch' reason='default feature for all apps'
+main
+other-services
+supports-screens: 'small' 'normal' 'large' 'xlarge'
+supports-any-density: 'true'
+locales: '--_--' 'af' 'am' 'ar' 'as' 'az' 'be' 'bg' 'bn' 'bs' 'ca' 'cs' 'da' 'de' 'el' 'en' 'en-AU' 'en-CA' 'en-GB' 'en-IN' 'en-XC' 'es' 'es-419' 'es-US' 'et' 'eu' 'fa' 'fi' 'fr' 'fr-CA' 'gl' 'gu' 'hi' 'hr' 'hu' 'hy' 'in' 'is' 'it' 'iw' 'ja' 'ka' 'kk' 'km' 'kn' 'ko' 'ky' 'lo' 'lt' 'lv' 'mk' 'ml' 'mn' 'mr' 'ms' 'my' 'nb' 'ne' 'nl' 'or' 'pa' 'pl' 'pt' 'pt-BR' 'pt-PT' 'ro' 'ru' 'si' 'sk' 'sl' 'sq' 'sr' 'sr-Latn' 'sv' 'sw' 'ta' 'te' 'th' 'tl' 'tr' 'uk' 'ur' 'uz' 'vi' 'zh-CN' 'zh-HK' 'zh-TW' 'zu'
+densities: '120' '160' '240' '320' '480' '640' '65534' '65535'
+
+### aapt2 dump permissions
+package: com.viewblocker.jrsen
+uses-permission: name='android.permission.INTERNET'
+uses-permission: name='android.permission.WRITE_EXTERNAL_STORAGE'
+uses-permission: name='android.permission.QUERY_ALL_PACKAGES'
+uses-permission-sdk-23: name='android.permission.FOREGROUND_SERVICE'
+
+### aapt2 dump xmltree AndroidManifest.xml
+N: android=http://schemas.android.com/apk/res/android (line=2)
+  E: manifest (line=2)
+    A: http://schemas.android.com/apk/res/android:versionCode(0x0101021b)=23
+    A: http://schemas.android.com/apk/res/android:versionName(0x0101021c)="3.0.0-beta3" (Raw: "3.0.0-beta3")
+    A: http://schemas.android.com/apk/res/android:compileSdkVersion(0x01010572)=31
+    A: http://schemas.android.com/apk/res/android:compileSdkVersionCodename(0x01010573)="12" (Raw: "12")
+    A: package="com.viewblocker.jrsen" (Raw: "com.viewblocker.jrsen")
+    A: platformBuildVersionCode=31
+    A: platformBuildVersionName=12
+      E: uses-sdk (line=7)
+        A: http://schemas.android.com/apk/res/android:minSdkVersion(0x0101020c)=21
+        A: http://schemas.android.com/apk/res/android:targetSdkVersion(0x01010270)=31
+      E: uses-permission (line=11)
+        A: http://schemas.android.com/apk/res/android:name(0x01010003)="android.permission.INTERNET" (Raw: "android.permission.INTERNET")
+      E: uses-permission (line=12)
+        A: http://schemas.android.com/apk/res/android:name(0x01010003)="android.permission.WRITE_EXTERNAL_STORAGE" (Raw: "android.permission.WRITE_EXTERNAL_STORAGE")
+      E: uses-permission (line=13)
+        A: http://schemas.android.com/apk/res/android:name(0x01010003)="android.permission.QUERY_ALL_PACKAGES" (Raw: "android.permission.QUERY_ALL_PACKAGES")
+      E: uses-permission-sdk-23 (line=15)
+        A: http://schemas.android.com/apk/res/android:name(0x01010003)="android.permission.FOREGROUND_SERVICE" (Raw: "android.permission.FOREGROUND_SERVICE")
+      E: application (line=17)
+        A: http://schemas.android.com/apk/res/android:theme(0x01010000)=@0x95130007
+        A: http://schemas.android.com/apk/res/android:label(0x01010001)=@0x9512001d
+        A: http://schemas.android.com/apk/res/android:icon(0x01010002)=@0x950f0001
+        A: http://schemas.android.com/apk/res/android:name(0x01010003)="com.kaisar.xposed.godmode.GodModeApplication" (Raw: "com.kaisar.xposed.godmode.GodModeApplication")
+        A: http://schemas.android.com/apk/res/android:supportsRtl(0x010103af)=true
+        A: http://schemas.android.com/apk/res/android:appComponentFactory(0x0101057a)="androidx.core.app.CoreComponentFactory" (Raw: "androidx.core.app.CoreComponentFactory")
+          E: activity (line=24)
+            A: http://schemas.android.com/apk/res/android:name(0x01010003)="com.kaisar.xposed.godmode.SettingsActivity" (Raw: "com.kaisar.xposed.godmode.SettingsActivity")
+            A: http://schemas.android.com/apk/res/android:exported(0x01010010)=true
+            A: http://schemas.android.com/apk/res/android:launchMode(0x0101001d)=2
+            A: http://schemas.android.com/apk/res/android:screenOrientation(0x0101001e)=-1
+              E: intent-filter (line=29)
+                  E: action (line=30)
+                    A: http://schemas.android.com/apk/res/android:name(0x01010003)="android.intent.action.MAIN" (Raw: "android.intent.action.MAIN")
+                  E: category (line=32)
+                    A: http://schemas.android.com/apk/res/android:name(0x01010003)="de.robv.android.xposed.category.MODULE_SETTINGS" (Raw: "de.robv.android.xposed.category.MODULE_SETTINGS")
+              E: intent-filter (line=34)
+                  E: action (line=35)
+                    A: http://schemas.android.com/apk/res/android:name(0x01010003)="android.service.quicksettings.action.QS_TILE_PREFERENCES" (Raw: "android.service.quicksettings.action.QS_TILE_PREFERENCES")
+          E: activity-alias (line=39)
+            A: http://schemas.android.com/apk/res/android:name(0x01010003)="com.kaisar.xposed.godmode.SettingsAliasActivity" (Raw: "com.kaisar.xposed.godmode.SettingsAliasActivity")
+            A: http://schemas.android.com/apk/res/android:exported(0x01010010)=true
+            A: http://schemas.android.com/apk/res/android:targetActivity(0x01010202)="com.kaisar.xposed.godmode.SettingsActivity" (Raw: "com.kaisar.xposed.godmode.SettingsActivity")
+              E: intent-filter (line=43)
+                  E: action (line=44)
+                    A: http://schemas.android.com/apk/res/android:name(0x01010003)="android.intent.action.MAIN" (Raw: "android.intent.action.MAIN")
+                  E: category (line=46)
+                    A: http://schemas.android.com/apk/res/android:name(0x01010003)="android.intent.category.LAUNCHER" (Raw: "android.intent.category.LAUNCHER")
+          E: service (line=50)
+            A: http://schemas.android.com/apk/res/android:label(0x01010001)=@0x9512001d
+            A: http://schemas.android.com/apk/res/android:icon(0x01010002)=@0x9508006f
+            A: http://schemas.android.com/apk/res/android:name(0x01010003)="com.kaisar.xposed.godmode.QuickSettingsService" (Raw: "com.kaisar.xposed.godmode.QuickSettingsService")
+            A: http://schemas.android.com/apk/res/android:permission(0x01010006)="android.permission.BIND_QUICK_SETTINGS_TILE" (Raw: "android.permission.BIND_QUICK_SETTINGS_TILE")
+            A: http://schemas.android.com/apk/res/android:exported(0x01010010)=false
+              E: intent-filter (line=56)
+                  E: action (line=57)
+                    A: http://schemas.android.com/apk/res/android:name(0x01010003)="android.service.quicksettings.action.QS_TILE" (Raw: "android.service.quicksettings.action.QS_TILE")
+          E: service (line=60)
+            A: http://schemas.android.com/apk/res/android:label(0x01010001)=@0x9512001d
+            A: http://schemas.android.com/apk/res/android:icon(0x01010002)=@0x9508006f
+            A: http://schemas.android.com/apk/res/android:name(0x01010003)="com.kaisar.xposed.godmode.NotificationService" (Raw: "com.kaisar.xposed.godmode.NotificationService")
+            A: http://schemas.android.com/apk/res/android:exported(0x01010010)=false
+          E: meta-data (line=66)
+            A: http://schemas.android.com/apk/res/android:name(0x01010003)="xposedmodule" (Raw: "xposedmodule")
+            A: http://schemas.android.com/apk/res/android:value(0x01010024)=true
+          E: meta-data (line=69)
+            A: http://schemas.android.com/apk/res/android:name(0x01010003)="xposeddescription" (Raw: "xposeddescription")
+            A: http://schemas.android.com/apk/res/android:value(0x01010024)=@0x951200d6
+          E: meta-data (line=72)
+            A: http://schemas.android.com/apk/res/android:name(0x01010003)="xposedminversion" (Raw: "xposedminversion")
+            A: http://schemas.android.com/apk/res/android:value(0x01010024)=53
+          E: meta-data (line=75)
+            A: http://schemas.android.com/apk/res/android:name(0x01010003)="xposedscope" (Raw: "xposedscope")
+            A: http://schemas.android.com/apk/res/android:resource(0x01010025)=@0x95030000
+          E: provider (line=79)
+            A: http://schemas.android.com/apk/res/android:name(0x01010003)="androidx.startup.InitializationProvider" (Raw: "androidx.startup.InitializationProvider")
+            A: http://schemas.android.com/apk/res/android:exported(0x01010010)=false
+            A: http://schemas.android.com/apk/res/android:authorities(0x01010018)="com.viewblocker.jrsen.androidx-startup" (Raw: "com.viewblocker.jrsen.androidx-startup")
+              E: meta-data (line=83)
+                A: http://schemas.android.com/apk/res/android:name(0x01010003)="androidx.emoji2.text.EmojiCompatInitializer" (Raw: "androidx.emoji2.text.EmojiCompatInitializer")
+                A: http://schemas.android.com/apk/res/android:value(0x01010024)="androidx.startup" (Raw: "androidx.startup")
+              E: meta-data (line=86)
+                A: http://schemas.android.com/apk/res/android:name(0x01010003)="androidx.lifecycle.ProcessLifecycleInitializer" (Raw: "androidx.lifecycle.ProcessLifecycleInitializer")
+                A: http://schemas.android.com/apk/res/android:value(0x01010024)="androidx.startup" (Raw: "androidx.startup")
+          E: uses-library (line=91)
+            A: http://schemas.android.com/apk/res/android:name(0x01010003)="androidx.window.extensions" (Raw: "androidx.window.extensions")
+            A: http://schemas.android.com/apk/res/android:required(0x0101028e)=false
+          E: uses-library (line=94)
+            A: http://schemas.android.com/apk/res/android:name(0x01010003)="androidx.window.sidecar" (Raw: "androidx.window.sidecar")
+            A: http://schemas.android.com/apk/res/android:required(0x0101028e)=false

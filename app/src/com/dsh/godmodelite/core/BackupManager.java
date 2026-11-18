@@ -1,6 +1,8 @@
 package com.dsh.godmodelite.core;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
 import java.io.IOException;
@@ -68,11 +70,8 @@ public final class BackupManager {
         }
     }
 
-    /** 导出规则到 Uri（调用方负责在子线程执行）。 */
-    public static void export(ContentResolver cr, Uri uri, List<Rule> rules, boolean blocking) throws Exception {
-        if (cr == null || uri == null) {
-            throw new IllegalArgumentException("没有可用的输出文件");
-        }
+    /** 生成备份 JSON 字符串（v4：手动备份、自动备份共用）。 */
+    public static String buildJsonString(List<Rule> rules, boolean blocking) throws Exception {
         JSONObject root = new JSONObject();
         JSONArray arr = new JSONArray();
         try {
@@ -94,7 +93,15 @@ public final class BackupManager {
         } catch (JSONException e) {
             throw new Exception("生成备份内容失败", e);
         }
-        byte[] data = root.toString().getBytes("UTF-8");
+        return root.toString();
+    }
+
+    /** 导出规则到 Uri（调用方负责在子线程执行）。 */
+    public static void export(ContentResolver cr, Uri uri, List<Rule> rules, boolean blocking) throws Exception {
+        if (cr == null || uri == null) {
+            throw new IllegalArgumentException("没有可用的输出文件");
+        }
+        byte[] data = buildJsonString(rules, blocking).getBytes("UTF-8");
         OutputStream os = null;
         try {
             os = cr.openOutputStream(uri);
@@ -106,6 +113,37 @@ public final class BackupManager {
         } finally {
             closeQuietly(os);
         }
+    }
+
+    /** v4：导出规则到应用默认目录下的普通文件（自动备份用，调用方在子线程执行）。 */
+    public static void exportToFile(File file, List<Rule> rules, boolean blocking) throws Exception {
+        if (file == null) {
+            throw new IllegalArgumentException("没有可用的输出文件");
+        }
+        File parent = file.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IOException("创建备份目录失败");
+        }
+        byte[] data = buildJsonString(rules, blocking).getBytes("UTF-8");
+        FileOutputStream fos = null;
+        try {
+            fos = new FileOutputStream(file);
+            fos.write(data);
+            fos.flush();
+        } finally {
+            closeQuietly(fos);
+        }
+    }
+
+    /** v4：从内存字节解析备份（自动备份文件恢复用）。 */
+    public static ImportResult importBackupBytes(byte[] data) throws Exception {
+        if (data == null || data.length == 0) {
+            throw new Exception("备份文件是空的");
+        }
+        if (isZip(data)) {
+            return parseOriginalZip(data);
+        }
+        return parseLiteJson(new String(data, "UTF-8"));
     }
 
     /** 导入规则（兼容 Lite JSON 与原版 ZIP 备份）。坏文件抛异常。 */

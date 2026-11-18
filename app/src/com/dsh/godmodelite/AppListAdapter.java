@@ -430,4 +430,13 @@ public class AppListAdapter extends BaseAdapter {
         TextView maskBadge;
         TextView goneBadge;
     }
+
+    /** v4 内存优化：系统内存紧张时清空图标缓存，降低占用。 */
+    public void trimMemory() {
+        try {
+            iconCache.evictAll();
+        } catch (Throwable ignored) {
+            // 忽略。
+        }
+    }
 }

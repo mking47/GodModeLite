@@ -23,6 +23,8 @@ public final class ConfigStore {
     private static final String KEY_RULES = "rules";
     private static final String KEY_BLOCKING = "blocking";
     private static final String KEY_BALL_VISIBLE = "ball_visible";
+    /** v4：开启屏蔽时自动备份规则开关。 */
+    private static final String KEY_AUTO_BACKUP = "auto_backup";
     private static final String KEY_BALL_X = "ball_x";
     private static final String KEY_BALL_Y = "ball_y";
     // ===== v3 新增键 =====
@@ -73,7 +75,9 @@ public final class ConfigStore {
     private static final List<Rule> sRules = new ArrayList<Rule>();
     private static boolean sBlocking = true;
     /** 悬浮球开关（默认显示）。 */
-    private static boolean sBallVisible = true;
+    private static boolean sBallVisible = false;
+    /** v4：开启屏蔽时是否自动备份（默认开）。 */
+    private static boolean sAutoBackup = true;
     /** 悬浮球上次拖动后的屏幕坐标；BALL_POS_UNSET 表示还没拖过。 */
     private static int sBallX = BALL_POS_UNSET;
     private static int sBallY = BALL_POS_UNSET;
@@ -109,7 +113,8 @@ public final class ConfigStore {
     private static void loadLocked() {
         sRules.clear();
         sBlocking = true;
-        sBallVisible = true;
+        sBallVisible = false;
+        sAutoBackup = true;
         sBallX = BALL_POS_UNSET;
         sBallY = BALL_POS_UNSET;
         sBallStyle = BALL_STYLE_EYE;
@@ -121,7 +126,8 @@ public final class ConfigStore {
             return;
         }
         sBlocking = sPrefs.getBoolean(KEY_BLOCKING, true);
-        sBallVisible = sPrefs.getBoolean(KEY_BALL_VISIBLE, true);
+        sBallVisible = sPrefs.getBoolean(KEY_BALL_VISIBLE, false);
+        sAutoBackup = sPrefs.getBoolean(KEY_AUTO_BACKUP, true);
         sBallX = sPrefs.getInt(KEY_BALL_X, BALL_POS_UNSET);
         sBallY = sPrefs.getInt(KEY_BALL_Y, BALL_POS_UNSET);
         sBallStyle = normalizeStyle(sPrefs.getInt(KEY_BALL_STYLE, BALL_STYLE_EYE));
@@ -522,6 +528,25 @@ public final class ConfigStore {
             return FILTER_ALL;
         }
         return mode;
+    }
+
+    // ===================== 自动备份（v4） =====================
+
+    /** 开启屏蔽时是否自动备份规则（默认 true）。 */
+    public static boolean isAutoBackupEnabled() {
+        synchronized (LOCK) {
+            return sAutoBackup;
+        }
+    }
+
+    /** 设置开启屏蔽时自动备份规则并持久化。 */
+    public static void setAutoBackupEnabled(boolean on) {
+        synchronized (LOCK) {
+            sAutoBackup = on;
+            if (sPrefs != null) {
+                sPrefs.edit().putBoolean(KEY_AUTO_BACKUP, on).apply();
+            }
+        }
     }
 
     // ===================== 规则统计（v3 状态卡用） =====================

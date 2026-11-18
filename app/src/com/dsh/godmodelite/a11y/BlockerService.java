@@ -52,7 +52,7 @@ public class BlockerService extends AccessibilityService
     private FloatingBall floatingBall;
 
     /** 悬浮球开关的会话状态（与 ConfigStore 同步；选择期间球窗口会被临时移除但该值不变） */
-    private boolean ballVisible = true;
+    private boolean ballVisible = false;
 
     /**
      * v3：会话级「临时隐藏」标记。由 hideBallForAppExit() 置位（关闭主界面时只隐藏本次运行），
@@ -124,7 +124,7 @@ public class BlockerService extends AccessibilityService
         try {
             ballVisible = ConfigStore.isBallVisible();
         } catch (Throwable t) {
-            ballVisible = true;
+            ballVisible = false;
         }
         applyBallVisibility();
         Log.i(TAG, "无障碍服务已连接，悬浮球=" + ballVisible);

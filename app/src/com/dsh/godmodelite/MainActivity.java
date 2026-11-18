@@ -1,5 +1,6 @@
 package com.dsh.godmodelite;
 
+import java.io.File;
 import java.text.Collator;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -42,6 +43,7 @@ import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.ScrollView;
@@ -50,6 +52,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.dsh.godmodelite.a11y.BlockerService;
+import com.dsh.godmodelite.core.AutoBackupManager;
 import com.dsh.godmodelite.core.BackupManager;
 import com.dsh.godmodelite.core.ConfigStore;
 import com.dsh.godmodelite.core.RootHelper;
@@ -119,6 +122,13 @@ public class MainActivity extends Activity {
     private EditText etSearch;
     private ListView lvApps;
     private TextView tvEmpty;
+    /** v4：自动备份状态（点击打开管理弹窗）。 */
+    private TextView tvAutoBackup;
+    /** v4：应用列表缓存时间，避免每次 onResume 都全量扫描。 */
+    private long lastAppsLoadTime;
+    /** v4：自动备份信息刷新中，避免重复起线程。 */
+    private boolean updatingAutoBackup;
+    private static final long APPS_CACHE_MS = 15000L;
 
     private AppListAdapter adapter;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -143,7 +153,8 @@ public class MainActivity extends Activity {
         refreshStatus();
         refreshModuleCard();
         checkRootAsync();
-        loadAppsAsync();
+        loadAppsAsync(false);
+        maybeAutoBackupOnLaunch();
         // v3「关闭即隐藏」：回到主界面且配置为显示时，恢复本次运行的悬浮球（不写配置）。
         BlockerService svc = BlockerService.get();
         if (svc != null && ConfigStore.isBallVisible()) {
@@ -178,6 +189,12 @@ public class MainActivity extends Activity {
                     // 服务未实现或异常时忽略（不影响退出）。
                 }
             }
+            // v4：关闭 App 后悬浮球保持关闭，只能在 App 内手动重新打开。
+            try {
+                ConfigStore.setBallVisible(false);
+            } catch (Throwable ignored) {
+                // 忽略。
+            }
         }
         if (adapter != null) {
             adapter.release();
@@ -198,9 +215,15 @@ public class MainActivity extends Activity {
         titleBar.setGravity(Gravity.CENTER_VERTICAL);
         titleBar.setPadding(dp(16), 0, dp(16), 0);
 
+        ImageView ivLogo = new ImageView(this);
+        ivLogo.setImageResource(R.mipmap.ic_launcher);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(26), dp(26));
+        logoLp.rightMargin = dp(10);
+        titleBar.addView(ivLogo, logoLp);
+
         TextView tvTitle = new TextView(this);
         tvTitle.setText("上帝模式 Lite");
-        tvTitle.setTextSize(20f);
+        tvTitle.setTextSize(18f);
         tvTitle.setTypeface(Typeface.DEFAULT_BOLD);
         tvTitle.setTextColor(COLOR_TEXT);
         tvTitle.setSingleLine(true);
@@ -208,7 +231,7 @@ public class MainActivity extends Activity {
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         TextView tvSubtitle = new TextView(this);
-        tvSubtitle.setText("免框架 · root 模式");
+        tvSubtitle.setText("v4.0 · 免框架 / LSPosed");
         tvSubtitle.setTextSize(12f);
         tvSubtitle.setTextColor(COLOR_SUB);
         tvSubtitle.setSingleLine(true);
@@ -217,7 +240,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         root.addView(titleBar, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(64)));
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54)));
 
         // ---- 2. 状态卡：root / 无障碍 / 规则统计 / 悬浮球 / LSPosed（v3 五行）----
         LinearLayout card = newCard();
@@ -228,39 +251,27 @@ public class MainActivity extends Activity {
         stLsposed = addStatusRow(card, "LSPosed：检测中");
         root.addView(card, blockLp(10));
 
-        // ---- 3. 按钮行1：一键配置 / 打开无障碍设置 / 使用说明书 ----
+        // ---- 3. 按钮行1：一键配置 / 图层选择 / 使用说明书 ----
         LinearLayout row1 = newRow();
         btnConfigure = newButton("一键配置（root）", COLOR_CARD2, COLOR_TEXT);
-        Button btnA11ySettings = newButton("打开无障碍设置", COLOR_CARD2, COLOR_TEXT);
+        Button btnLayer = newButton("图层选择", COLOR_ACCENT, 0xFFFFFFFF);
         Button btnHelp = newButton("使用说明书", COLOR_CARD2, COLOR_TEXT);
         addToRow(row1, btnConfigure);
-        addToRow(row1, btnA11ySettings);
+        addToRow(row1, btnLayer);
         addToRow(row1, btnHelp);
         root.addView(row1, blockLp(8));
 
-        // ---- 4. 按钮行2：图层选择 + 悬浮球样式 + 悬浮球开关 ----
+        // ---- 4. 按钮行2：悬浮球样式 / 备份规则 / 恢复规则 ----
         LinearLayout row2 = newRow();
-        Button btnLayer = newButton("图层选择", COLOR_ACCENT, 0xFFFFFFFF);
-        addToRow(row2, btnLayer);
-
         btnBallStyle = newButton("悬浮球样式", COLOR_CARD2, COLOR_TEXT);
+        btnBackup = newButton("备份规则", COLOR_CARD2, COLOR_TEXT);
+        Button btnRestore = newButton("恢复规则", COLOR_CARD2, COLOR_TEXT);
         addToRow(row2, btnBallStyle);
-
-        swBall = new Switch(this);
-        swBall.setText("悬浮球");
-        swBall.setTextSize(13f);
-        swBall.setTextColor(COLOR_TEXT);
-        swBall.setPadding(dp(8), 0, dp(4), 0);
-        swBall.setBackground(rounded(COLOR_CARD2, 8));
-        swBall.setButtonTintList(tint(COLOR_ACCENT, 0xFF616161));
-        LinearLayout.LayoutParams ballLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        ballLp.leftMargin = dp(6);
-        ballLp.gravity = Gravity.CENTER_VERTICAL;
-        row2.addView(swBall, ballLp);
+        addToRow(row2, btnBackup);
+        addToRow(row2, btnRestore);
         root.addView(row2, blockLp(8));
 
-        // ---- 5. 开关行：启用屏蔽 + 系统布局边界（root，全局 debug.layout） ----
+        // ---- 5. 开关行1：启用屏蔽 / 悬浮球（v4：悬浮球默认关闭，只能手动打开） ----
         LinearLayout switchRow = newRow();
         swBlocking = new Switch(this);
         swBlocking.setText("启用屏蔽");
@@ -270,35 +281,51 @@ public class MainActivity extends Activity {
         switchRow.addView(swBlocking, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
+        swBall = new Switch(this);
+        swBall.setText("悬浮球");
+        swBall.setTextSize(12f);
+        swBall.setTextColor(COLOR_TEXT);
+        swBall.setButtonTintList(tint(COLOR_ACCENT, 0xFF616161));
+        switchRow.addView(swBall, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        root.addView(switchRow, blockLp(4));
+
+        // ---- 6. 开关行2：布局边界 / 自动备份状态（点击管理） ----
+        LinearLayout switchRow2 = newRow();
         swLayoutBounds = new Switch(this);
         swLayoutBounds.setText("布局边界");
         swLayoutBounds.setTextSize(12f);
         swLayoutBounds.setTextColor(COLOR_TEXT);
         swLayoutBounds.setButtonTintList(tint(COLOR_ACCENT, 0xFF616161));
-        switchRow.addView(swLayoutBounds, new LinearLayout.LayoutParams(
+        switchRow2.addView(swLayoutBounds, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        root.addView(switchRow, blockLp(4));
 
-        // ---- 6. 按钮行3：排序 / 筛选 / 备份规则（v3 新增排序、筛选） ----
+        tvAutoBackup = new TextView(this);
+        tvAutoBackup.setText("自动备份：—");
+        tvAutoBackup.setTextSize(11f);
+        tvAutoBackup.setTextColor(COLOR_INFO);
+        tvAutoBackup.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        tvAutoBackup.setSingleLine(true);
+        tvAutoBackup.setEllipsize(TextUtils.TruncateAt.END);
+        tvAutoBackup.setPadding(dp(8), dp(6), dp(2), dp(6));
+        switchRow2.addView(tvAutoBackup, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        root.addView(switchRow2, blockLp(2));
+
+        // ---- 7. 按钮行3：排序 / 筛选 / 更多（刷新、无障碍设置、LSPosed、自动备份管理） ----
         LinearLayout row3 = newRow();
         btnSort = newButton("排序·智能", COLOR_CARD2, COLOR_TEXT);
         btnFilter = newButton("筛选·全部", COLOR_CARD2, COLOR_TEXT);
-        btnBackup = newButton("备份规则", COLOR_CARD2, COLOR_TEXT);
+        Button btnMore = newButton("更多…", COLOR_CARD2, COLOR_TEXT);
         addToRow(row3, btnSort);
         addToRow(row3, btnFilter);
-        addToRow(row3, btnBackup);
+        addToRow(row3, btnMore);
         root.addView(row3, blockLp(8));
 
-        // ---- 7. 按钮行4：恢复 / 刷新 / 打开 LSPosed ----
-        LinearLayout row4 = newRow();
-        Button btnRestore = newButton("恢复规则", COLOR_CARD2, COLOR_TEXT);
+        // 「更多」菜单里复用的隐藏按钮（保留原有监听逻辑，不进布局）
+        Button btnA11ySettings = newButton("打开无障碍设置", COLOR_CARD2, COLOR_TEXT);
         Button btnRefresh = newButton("刷新", COLOR_CARD2, COLOR_TEXT);
         btnLsposed = newButton("打开 LSPosed", COLOR_CARD2, COLOR_INFO);
-        btnLsposed.setTextSize(12f);
-        addToRow(row4, btnRestore);
-        addToRow(row4, btnRefresh);
-        addToRow(row4, btnLsposed);
-        root.addView(row4, blockLp(8));
 
         // ---- 8. 搜索框（深色圆角）----
         etSearch = new EditText(this);
@@ -406,6 +433,18 @@ public class MainActivity extends Activity {
                 openHelp();
             }
         });
+        btnMore.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showMoreDialog();
+            }
+        });
+        tvAutoBackup.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showAutoBackupDialog();
+            }
+        });
         btnBackup.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -422,7 +461,8 @@ public class MainActivity extends Activity {
             @Override
             public void onClick(View v) {
                 toast("正在刷新应用列表…");
-                loadAppsAsync();
+                lastAppsLoadTime = 0L;
+                loadAppsAsync(true);
             }
         });
         btnLsposed.setOnClickListener(new View.OnClickListener() {
@@ -447,7 +487,14 @@ public class MainActivity extends Activity {
                     return;
                 }
                 ConfigStore.setBlockingEnabled(isChecked);
-                toast(isChecked ? "已启用屏蔽" : "已关闭屏蔽");
+                if (isChecked) {
+                    toast("已启用屏蔽");
+                    if (ConfigStore.isAutoBackupEnabled()) {
+                        doAutoBackup(false);
+                    }
+                } else {
+                    toast("已关闭屏蔽");
+                }
             }
         });
         etSearch.addTextChangedListener(new TextWatcher() {
@@ -644,6 +691,7 @@ public class MainActivity extends Activity {
         applyFilter();
         refreshLayoutBoundsStatus();
         updateSortFilterButtons();
+        refreshAutoBackupInfo();
     }
 
     /**
@@ -1085,8 +1133,14 @@ public class MainActivity extends Activity {
         return result;
     }
 
-    private void loadAppsAsync() {
+    private void loadAppsAsync(boolean force) {
         if (loadingApps) {
+            return;
+        }
+        // v4：15 秒内复用上次扫描结果，避免每次回到前台都全量扫描（省内存/省电）。
+        if (!force && System.currentTimeMillis() - lastAppsLoadTime < APPS_CACHE_MS
+                && !allApps.isEmpty()) {
+            applyFilter();
             return;
         }
         loadingApps = true;
@@ -1249,6 +1303,230 @@ public class MainActivity extends Activity {
             startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
         } catch (Exception e) {
             toast("无法打开无障碍设置页");
+        }
+    }
+
+    // ===================== 更多菜单 / 自动备份（v4） =====================
+
+    /** 「更多」菜单：无障碍设置、刷新、打开 LSPosed、自动备份管理。 */
+    private void showMoreDialog() {
+        final java.util.ArrayList<String> items = new java.util.ArrayList<String>();
+        items.add("打开无障碍设置");
+        items.add("刷新应用列表");
+        if (isPackageInstalled(PKG_LSPOSED)) {
+            items.add("打开 LSPosed");
+        }
+        items.add("自动备份管理");
+        new AlertDialog.Builder(this)
+                .setTitle("更多")
+                .setItems(items.toArray(new String[items.size()]), new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        String item = items.get(which);
+                        if ("打开无障碍设置".equals(item)) {
+                            openA11ySettings();
+                        } else if ("刷新应用列表".equals(item)) {
+                            lastAppsLoadTime = 0L;
+                            toast("正在刷新应用列表…");
+                            loadAppsAsync(true);
+                        } else if ("打开 LSPosed".equals(item)) {
+                            openLsposed();
+                        } else if ("自动备份管理".equals(item)) {
+                            showAutoBackupDialog();
+                        }
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /** 自动备份管理：目录/保留份数/最近两份 + 立即备份、恢复最近一份、开关。 */
+    private void showAutoBackupDialog() {
+        final File[] files = AutoBackupManager.listBackups(this);
+        StringBuilder sb = new StringBuilder();
+        sb.append("目录：").append(AutoBackupManager.dirDisplayPath(this));
+        sb.append("\n保留：最近 ").append(AutoBackupManager.MAX_BACKUPS).append(" 份（新的覆盖旧的）");
+        sb.append("\n开启屏蔽时自动备份：").append(ConfigStore.isAutoBackupEnabled() ? "开" : "关");
+        if (files.length == 0) {
+            sb.append("\n\n还没有自动备份。");
+        } else {
+            sb.append("\n\n最近备份：");
+            SimpleDateFormat fmt = new SimpleDateFormat("MM-dd HH:mm:ss", Locale.US);
+            for (int i = 0; i < files.length; i++) {
+                sb.append("\n").append(i + 1).append(". ").append(fmt.format(new Date(files[i].lastModified())))
+                        .append("（").append(files[i].length() / 1024).append(" KB）");
+            }
+        }
+        final java.util.ArrayList<String> items = new java.util.ArrayList<String>();
+        items.add("立即备份一份");
+        if (files.length > 0) {
+            items.add("恢复最近一份");
+        }
+        items.add(ConfigStore.isAutoBackupEnabled() ? "关闭「开启屏蔽时自动备份」" : "开启「开启屏蔽时自动备份」");
+        new AlertDialog.Builder(this)
+                .setTitle("自动备份")
+                .setMessage(sb.toString())
+                .setItems(items.toArray(new String[items.size()]), new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        String item = items.get(which);
+                        if ("立即备份一份".equals(item)) {
+                            doAutoBackup(true);
+                        } else if ("恢复最近一份".equals(item)) {
+                            confirmRestoreAutoBackup(files[0]);
+                        } else {
+                            boolean on = !ConfigStore.isAutoBackupEnabled();
+                            ConfigStore.setAutoBackupEnabled(on);
+                            refreshAutoBackupInfo();
+                            toast(on ? "已开启「开启屏蔽时自动备份」" : "已关闭「开启屏蔽时自动备份」");
+                        }
+                    }
+                })
+                .setNegativeButton("关闭", null)
+                .show();
+    }
+
+    /** 确认恢复某份自动备份（覆盖当前规则）。 */
+    private void confirmRestoreAutoBackup(final File file) {
+        if (file == null) {
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("恢复自动备份")
+                .setMessage("将用 " + file.getName() + " 覆盖当前全部规则，是否继续？")
+                .setPositiveButton("恢复", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        restoreAutoBackup(file);
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void restoreAutoBackup(final File file) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                BackupManager.ImportResult result = null;
+                String err = null;
+                try {
+                    final byte[] data = AutoBackupManager.readFile(file);
+                    result = BackupManager.importBackupBytes(data);
+                } catch (Exception e) {
+                    err = e.getMessage() == null ? "读取备份失败" : e.getMessage();
+                }
+                final BackupManager.ImportResult fResult = result;
+                final String fErr = err;
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing() || isDestroyed()) {
+                            return;
+                        }
+                        if (fResult == null) {
+                            toast("恢复失败：" + fErr);
+                            return;
+                        }
+                        showRestoreDialog(fResult);
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** 执行一次自动备份（background），manual=true 时给用户 Toast。 */
+    private void doAutoBackup(final boolean manual) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                File file = null;
+                String err = null;
+                try {
+                    file = AutoBackupManager.autoBackup(MainActivity.this);
+                } catch (Exception e) {
+                    err = e.getMessage() == null ? "备份失败" : e.getMessage();
+                }
+                final File fFile = file;
+                final String fErr = err;
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing() || isDestroyed()) {
+                            return;
+                        }
+                        if (fFile != null) {
+                            toast((manual ? "已自动备份：" : "开启屏蔽，已自动备份规则：") + fFile.getName());
+                        } else if (manual) {
+                            toast("自动备份失败：" + fErr);
+                        }
+                        refreshAutoBackupInfo();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** App 启动时补一次当日备份（避免同一天重复备份）。 */
+    private void maybeAutoBackupOnLaunch() {
+        if (!ConfigStore.isBlockingEnabled() || !ConfigStore.isAutoBackupEnabled()) {
+            return;
+        }
+        if (ConfigStore.countMask() + ConfigStore.countGone() == 0) {
+            return;
+        }
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (!AutoBackupManager.hasBackupToday(MainActivity.this)) {
+                        AutoBackupManager.autoBackup(MainActivity.this);
+                    }
+                } catch (Throwable ignored) {
+                    // 启动补备份失败不打扰用户。
+                }
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!isFinishing() && !isDestroyed()) {
+                            refreshAutoBackupInfo();
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** 刷新「自动备份」信息行（文件列表放子线程，避免主线程 IO）。 */
+    private void refreshAutoBackupInfo() {
+        if (tvAutoBackup == null || updatingAutoBackup) {
+            return;
+        }
+        updatingAutoBackup = true;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final String summary = AutoBackupManager.summary(MainActivity.this);
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        updatingAutoBackup = false;
+                        if (isFinishing() || isDestroyed() || tvAutoBackup == null) {
+                            return;
+                        }
+                        tvAutoBackup.setText("自动备份：" + summary + " ›");
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** 系统内存紧张时释放图标缓存（v4 内存优化）。 */
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (adapter != null) {
+            adapter.trimMemory();
         }
     }
 

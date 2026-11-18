@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 盾牌底 -->
+    <path
+        android:fillColor="#0C1E1A"
+        android:pathData="M54,25.5 L76.8,34 L76.8,56.4 L54,85.4 L31.2,56.4 L31.2,34 Z" />
+    <!-- 盾牌描边 -->
+    <path
+        android:pathData="M54,25.5 L76.8,34 L76.8,56.4 L54,85.4 L31.2,56.4 L31.2,34 Z"
+        android:strokeColor="#4CAF50"
+        android:strokeWidth="1.9"
+        android:strokeLineJoin="round" />
+    <!-- 眼睛 -->
+    <path
+        android:fillColor="#F0F8FF"
+        android:pathData="M37.8,54 Q54,43 70.2,54 Q54,65 37.8,54 Z" />
+    <!-- 瞳孔 -->
+    <path
+        android:fillColor="#0A1218"
+        android:pathData="M54,49.1 a4.9,4.9 0 1,0 0.01,0 z" />
+    <!-- 禁止斜杠（深色描边 + 红色线） -->
+    <path
+        android:pathData="M38.3,73.0 L69.7,36.4"
+        android:strokeColor="#0A1218"
+        android:strokeWidth="4.2"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M38.3,73.0 L69.7,36.4"
+        android:strokeColor="#FF5252"
+        android:strokeWidth="2.6"
+        android:strokeLineCap="round" />
+</vector>

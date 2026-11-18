@@ -108,6 +108,7 @@ public final class RuleClient {
             int ballStyle = DEFAULT_BALL_STYLE;
             int ballSizeDp = DEFAULT_BALL_SIZE_DP;
             int ballAlpha = DEFAULT_BALL_ALPHA;
+            boolean ballVisible = false;
             if (cursor.moveToFirst()) {
                 int jsonIndex = cursor.getColumnIndex("json");
                 int blockingIndex = cursor.getColumnIndex("blocking");
@@ -130,6 +131,10 @@ public final class RuleClient {
                 if (alphaIndex >= 0 && !cursor.isNull(alphaIndex)) {
                     ballAlpha = cursor.getInt(alphaIndex);
                 }
+                int visibleIndex2 = cursor.getColumnIndex("ball_visible");
+                if (visibleIndex2 >= 0 && !cursor.isNull(visibleIndex2)) {
+                    ballVisible = cursor.getInt(visibleIndex2) != 0;
+                }
             }
             // 空值 / 非法值兜底：0 / 48 / 235
             if (ballStyle < 0 || ballStyle > 4) {
@@ -141,7 +146,8 @@ public final class RuleClient {
             if (ballAlpha <= 0) {
                 ballAlpha = DEFAULT_BALL_ALPHA;
             }
-            return new RuleData(parseRules(json, pkg), blocking, ballStyle, ballSizeDp, ballAlpha);
+            return new RuleData(parseRules(json, pkg), blocking, ballStyle, ballSizeDp, ballAlpha,
+                    ballVisible);
         } catch (Throwable t) {
             log("查询规则失败 pkg=" + pkg + " : " + t);
             return null;
@@ -235,18 +241,26 @@ public final class RuleClient {
         public final int ballSizeDp;
         /** 悬浮球透明度 150~255。 */
         public final int ballAlpha;
+        /** v4：悬浮球是否开启（手动开关；false 时模块不显示任何悬浮球）。 */
+        public final boolean ballVisible;
 
         public RuleData(List<RuleSpec> rules, boolean blocking) {
-            this(rules, blocking, DEFAULT_BALL_STYLE, DEFAULT_BALL_SIZE_DP, DEFAULT_BALL_ALPHA);
+            this(rules, blocking, DEFAULT_BALL_STYLE, DEFAULT_BALL_SIZE_DP, DEFAULT_BALL_ALPHA, false);
         }
 
         public RuleData(List<RuleSpec> rules, boolean blocking,
                         int ballStyle, int ballSizeDp, int ballAlpha) {
+            this(rules, blocking, ballStyle, ballSizeDp, ballAlpha, false);
+        }
+
+        public RuleData(List<RuleSpec> rules, boolean blocking,
+                        int ballStyle, int ballSizeDp, int ballAlpha, boolean ballVisible) {
             this.rules = rules == null ? new ArrayList<RuleSpec>() : rules;
             this.blocking = blocking;
             this.ballStyle = ballStyle;
             this.ballSizeDp = ballSizeDp;
             this.ballAlpha = ballAlpha;
+            this.ballVisible = ballVisible;
         }
     }
 
