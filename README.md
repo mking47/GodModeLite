@@ -3,7 +3,7 @@
 > 安卓界面元素工具：**root 免框架遮挡** + **LSPosed 模块真删** 双模式，带悬浮球、全图层选择、规则自动备份。<br>
 > 不依赖 Xposed 也能用（root + 无障碍）；要让别的 App 里的元素**真正消失**，把本 APK 同时作为 LSPosed 模块启用即可。
 
-当前版本：**v4.0**（[Releases](https://github.com/mking47/GodModeLite/releases)）
+当前版本：（[Releases](https://github.com/mking47/GodModeLite/releases)）
 
 ## 功能
 
