@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">上帝模式 Lite</string>
+    <string name="a11y_label">上帝模式 Lite 屏蔽服务</string>
+    <string name="a11y_desc">用于选取并遮挡其他应用中的界面元素（广告、按钮等）。需要无障碍权限。</string>
+    <string name="rule_title">规则</string>
+    <string name="help_title">使用说明书</string>
+</resources>

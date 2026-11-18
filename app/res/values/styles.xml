@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 原生 Material 黑色主题：无 ActionBar，界面自己画标题栏 -->
+    <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:colorPrimary">@color/gm_bg</item>
+        <item name="android:colorPrimaryDark">@color/gm_black</item>
+        <item name="android:colorAccent">@color/gm_accent</item>
+        <item name="android:windowBackground">@color/gm_bg</item>
+        <item name="android:statusBarColor">@color/gm_black</item>
+        <item name="android:navigationBarColor">@color/gm_black</item>
+        <item name="android:colorControlActivated">@color/gm_accent</item>
+        <item name="android:colorControlHighlight">#33FFFFFF</item>
+        <item name="android:textColorPrimary">@color/gm_text</item>
+        <item name="android:textColorSecondary">@color/gm_text_sub</item>
+    </style>
+</resources>

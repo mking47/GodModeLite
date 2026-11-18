@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="gm_bg">#121212</color>
+    <color name="gm_black">#000000</color>
+    <color name="gm_accent">#4CAF50</color>
+    <color name="gm_text">#F2F2F2</color>
+    <color name="gm_text_sub">#9E9E9E</color>
+</resources>
