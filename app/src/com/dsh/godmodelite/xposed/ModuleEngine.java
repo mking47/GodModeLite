@@ -121,6 +121,10 @@ public final class ModuleEngine {
     private static final HashMap<String, List<RuleClient.RuleSpec>> LOCAL_RULES =
             new HashMap<String, List<RuleClient.RuleSpec>>();
 
+    /** v5.1：诊断日志节流（60 秒），避免每次 resume 都跨进程写日志。 */
+    private static final long DIAG_LOG_INTERVAL_MS = 60000L;
+    private static long sLastDiagLog = 0L;
+
     private ModuleEngine() {
         // 工具类，不允许实例化
     }
@@ -164,12 +168,70 @@ public final class ModuleEngine {
             closeMenuInternal(state);
             closePickerInternal(state);
             ensureBall(activity, state);
+            // v5.1：向主应用写心跳 + 诊断日志，App 里可据此判断模块是否真的生效
+            RuleClient.heartbeat(activity, pkg);
+            diagLog(activity, "onResume pkg=" + pkg + " process=" + currentProcessName());
             scheduleRuleApply(activity, state, RULE_DELAY_FIRST);
             scheduleRuleApply(activity, state, RULE_DELAY_SECOND);
         } catch (Throwable t) {
             log("onResume 处理失败");
             logThrowable(t);
         }
+    }
+
+    /**
+     * v5.1：Activity.onPostResume（after）时调用。
+     * 有些系统/应用在 onResume 之后才把内容 inflate 完，这里再补一次延迟应用，提升「重启后首次打开」的命中率。
+     */
+    public static void onPostResume(Activity activity) {
+        if (activity == null) {
+            return;
+        }
+        try {
+            ActivityState state = stateOf(activity);
+            if (state == null || state.decor == null) {
+                return;
+            }
+            scheduleRuleApply(activity, state, 120L);
+        } catch (Throwable t) {
+            log("onPostResume 处理失败");
+            logThrowable(t);
+        }
+    }
+
+    /** 诊断日志：同时写 XposedBridge 与主应用（60 秒节流写主应用）。 */
+    private static void diagLog(Context context, String line) {
+        log(line);
+        long now = System.currentTimeMillis();
+        if (now - sLastDiagLog < DIAG_LOG_INTERVAL_MS) {
+            return;
+        }
+        sLastDiagLog = now;
+        try {
+            RuleClient.sendLog(context, line);
+        } catch (Throwable ignored) {
+            // 忽略
+        }
+    }
+
+    /** 当前进程名（诊断日志用）。 */
+    private static String currentProcessName() {
+        try {
+            java.io.FileInputStream in = new java.io.FileInputStream("/proc/self/cmdline");
+            byte[] buf = new byte[128];
+            int n = in.read(buf);
+            in.close();
+            if (n > 0) {
+                int end = 0;
+                while (end < n && buf[end] != 0) {
+                    end++;
+                }
+                return new String(buf, 0, end, "UTF-8");
+            }
+        } catch (Throwable ignored) {
+            // 忽略
+        }
+        return "?";
     }
 
     /** Activity.onDestroy（after）时调用：移除本 Activity 上所有我们加的 View，释放 handler。 */

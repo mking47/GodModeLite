@@ -128,6 +128,9 @@ public class MainActivity extends Activity {
     private long lastAppsLoadTime;
     /** v4：自动备份信息刷新中，避免重复起线程。 */
     private boolean updatingAutoBackup;
+    /** v5.1：root 读取的 LSPosed 诊断文本 / 是否正在读取。 */
+    private String lsposedDiag;
+    private boolean checkingLsposed;
     private static final long APPS_CACHE_MS = 15000L;
 
     private AppListAdapter adapter;
@@ -1027,14 +1030,118 @@ public class MainActivity extends Activity {
             return;
         }
         boolean installed = isPackageInstalled(PKG_LSPOSED);
-        if (installed) {
-            // v3：模块状态合并进状态卡，不再单独占一整张卡片（省出列表高度）。
-            setStatus(stLsposed, "LSPosed：已安装 · 勾选作用域可真删", COLOR_ACCENT);
-            btnLsposed.setVisibility(View.VISIBLE);
+        long heartbeat = ConfigStore.getModuleLastTime();
+        String heartbeatPkg = ConfigStore.getModuleLastPkg();
+        if (heartbeat > 0L) {
+            String time = new SimpleDateFormat("MM-dd HH:mm", Locale.US).format(new Date(heartbeat));
+            setStatus(stLsposed, "LSPosed：模块已生效 · 心跳 " + time
+                    + (heartbeatPkg == null ? "" : " (" + heartbeatPkg + ")"), COLOR_ACCENT);
+        } else if (installed) {
+            setStatus(stLsposed, "LSPosed：已安装 · 未见模块心跳（更多→LSPosed 诊断）", COLOR_INFO);
         } else {
             setStatus(stLsposed, "LSPosed：未安装（仅支持遮挡）", COLOR_SUB);
-            btnLsposed.setVisibility(View.GONE);
         }
+        btnLsposed.setVisibility(installed ? View.VISIBLE : View.GONE);
+        startLsposedProbe(installed);
+    }
+
+    /** root 后台读取 LSPosed 配置/日志，用于诊断「勾选了但重启不生效」。 */
+    private void startLsposedProbe(final boolean installed) {
+        if (checkingLsposed) {
+            return;
+        }
+        checkingLsposed = true;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final String diag = RootHelper.lsposedDiagnostics(MainActivity.this);
+                handler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        checkingLsposed = false;
+                        lsposedDiag = diag;
+                        if (isFinishing() || isDestroyed()) {
+                            return;
+                        }
+                        if (!installed && diag != null
+                                && (diag.indexOf("/data/adb/lspd") >= 0 || diag.indexOf("zygisk_lsposed") >= 0)) {
+                            // 管理器被隐藏/包名不可见，但 root 能读到 LSPosed 目录
+                            setStatus(stLsposed, ConfigStore.getModuleLastTime() > 0L
+                                    ? "LSPosed：已安装（root 读取）· 模块有心跳"
+                                    : "LSPosed：已安装（root 读取）· 未见模块心跳（更多→诊断）",
+                                    ConfigStore.getModuleLastTime() > 0L ? COLOR_ACCENT : COLOR_INFO);
+                            btnLsposed.setVisibility(View.GONE);
+                            return;
+                        }
+                        if (ConfigStore.getModuleLastTime() <= 0L && diag != null
+                                && diag.indexOf("com.dsh.godmodelite") >= 0) {
+                            // root 能在 LSPosed 配置里读到本模块，但还没收到运行心跳：多半是作用域/重启问题
+                            setStatus(stLsposed, "LSPosed：配置含本模块 · 未见心跳（检查作用域并重启目标应用）",
+                                    COLOR_INFO);
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** LSPosed 诊断弹窗：模块心跳 + 模块日志 + root 读取结果。 */
+    private void showLsposedDialog() {
+        StringBuilder sb = new StringBuilder();
+        long heartbeat = ConfigStore.getModuleLastTime();
+        if (heartbeat > 0L) {
+            sb.append("== 模块心跳 ==\n最近生效：")
+                    .append(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date(heartbeat)))
+                    .append("（").append(ConfigStore.getModuleLastPkg()).append("）");
+        } else {
+            sb.append("== 模块心跳 ==\n尚未收到。说明模块还没有在任何目标应用里生效：\n"
+                    + "1) LSPosed 里确认模块已启用；\n"
+                    + "2) 作用域里勾选目标应用；\n"
+                    + "3) 强制停止目标应用后重新打开（重启手机更彻底）。");
+        }
+        String log = ConfigStore.getModuleLog();
+        if (log != null && log.length() > 0) {
+            sb.append("\n\n== 模块日志（新→旧） ==\n").append(log);
+        }
+        sb.append("\n\n== root 读取（LSPosed 配置/进程/日志） ==\n")
+                .append(lsposedDiag == null ? "读取中…请点「刷新」" : lsposedDiag);
+        sb.append("\n\n== 说明 ==\n· 心跳出现=模块已注入目标进程；\n"
+                + "· 只勾模块不勾作用域不会生效；\n"
+                + "· Android 13/14 侧载需允许受限设置；\n"
+                + "· 修改后必须强制停止目标应用（或重启手机）才会重新加载模块。");
+
+        ScrollView scroll = new ScrollView(this);
+        TextView tv = new TextView(this);
+        tv.setText(sb.toString());
+        tv.setTextSize(11f);
+        tv.setTextColor(COLOR_TEXT);
+        tv.setPadding(dp(14), dp(10), dp(14), dp(10));
+        scroll.addView(tv);
+
+        new AlertDialog.Builder(this)
+                .setTitle("LSPosed 诊断")
+                .setView(scroll)
+                .setPositiveButton("刷新", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        lsposedDiag = null;
+                        startLsposedProbe(isPackageInstalled(PKG_LSPOSED));
+                        handler.postDelayed(new Runnable() {
+                            @Override
+                            public void run() {
+                                showLsposedDialog();
+                            }
+                        }, 900L);
+                    }
+                })
+                .setNeutralButton("打开 LSPosed", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        openLsposed();
+                    }
+                })
+                .setNegativeButton("关闭", null)
+                .show();
     }
 
     private void openLsposed() {
@@ -1293,6 +1400,7 @@ public class MainActivity extends Activity {
         if (isPackageInstalled(PKG_LSPOSED)) {
             items.add("打开 LSPosed");
         }
+        items.add("LSPosed 诊断（root 读取）");
         items.add("自动备份管理");
         items.add("退出并关闭后台（停止服务）");
         new AlertDialog.Builder(this)
@@ -1311,6 +1419,8 @@ public class MainActivity extends Activity {
                             loadAppsAsync(true);
                         } else if ("打开 LSPosed".equals(item)) {
                             openLsposed();
+                        } else if ("LSPosed 诊断（root 读取）".equals(item)) {
+                            showLsposedDialog();
                         } else if ("自动备份管理".equals(item)) {
                             showAutoBackupDialog();
                         } else if ("退出并关闭后台（停止服务）".equals(item)) {

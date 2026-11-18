@@ -128,6 +128,21 @@ public class RulesProvider extends ContentProvider {
             if (values == null) {
                 return null;
             }
+            // v5.1：模块诊断通道（跨进程）：
+            //   op=heartbeat → 记录模块在目标进程生效的包名/时间
+            //   op=log       → 追加一行模块日志
+            String op = values.getAsString("op");
+            if ("heartbeat".equals(op)) {
+                String pkg = values.getAsString("pkg");
+                Long time = values.getAsLong("time");
+                ConfigStore.setModuleHeartbeat(pkg, time == null ? System.currentTimeMillis() : time.longValue());
+                return Uri.withAppendedPath(BASE_URI, "heartbeat");
+            }
+            if ("log".equals(op)) {
+                String line = values.getAsString("line");
+                ConfigStore.appendModuleLog(line);
+                return Uri.withAppendedPath(BASE_URI, "log");
+            }
             String json = values.getAsString(COL_JSON);
             if (json == null || json.trim().length() == 0) {
                 return null;

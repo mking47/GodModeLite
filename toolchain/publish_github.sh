@@ -1,5 +1,5 @@
 #!/bin/bash
-# 发布 GodModeLite 5.0 到 GitHub：建仓库（含 README）→ 建 Release → 上传 APK/源码/文档
+# 发布 GodModeLite 3.0 到 GitHub：建仓库（含 README）→ 建 Release → 上传 APK/源码/文档
 # 用法：
 #   GITHUB_TOKEN=ghp_xxx bash toolchain/publish_github.sh [仓库名] [public|private]
 # 说明：token 只在本进程内存中使用，不落盘；建议用后到 GitHub 撤销。
@@ -10,12 +10,12 @@ REPO="${1:-GodModeLite}"
 VIS="${2:-public}"
 API="https://api.github.com"
 UP="https://uploads.github.com"
-TAG="v5.0"
-TITLE="上帝模式 Lite v5.0"
-APK="$ROOT/dist/GodModeLite-5.0.apk"
+TAG="v3.0"
+TITLE="上帝模式 Lite v3.0"
+APK="$ROOT/dist/GodModeLite-3.0.apk"
 SRC="$ROOT/dist/源码.zip"
-NOTES="$ROOT/releases/RELEASE_NOTES_v5.0.md"
-README="$ROOT/README.md"
+NOTES="$ROOT/release/RELEASE_NOTES_v3.0.md"
+README="$ROOT/release/README.md"
 
 if [ -z "$TOKEN" ]; then echo "错误：需要 GITHUB_TOKEN 环境变量"; exit 1; fi
 for f in "$APK" "$SRC" "$NOTES" "$README"; do
@@ -101,12 +101,12 @@ upload() { # upload FILE ASSET_NAME
     -H "Content-Type: application/octet-stream" --data-binary "@$file" \
     "$UPLOAD_URL?name=$name" | grep -q '"browser_download_url"' && echo "   OK" || echo "   失败（可能已存在同名资产）"
 }
-upload "$APK" "GodModeLite-5.0.apk"
-upload "$SRC" "source-v5.0.zip"
+upload "$APK" "GodModeLite-3.0.apk"
+upload "$SRC" "source-v3.0.zip"
 upload "$README" "README-zh.md"
-upload "$NOTES" "release-notes-v5.0.md"
-upload "$ROOT/docs/使用说明-5.0.md" "使用说明.md" 2>/dev/null || true
-upload "$ROOT/docs/验收报告-5.0.md" "acceptance-report-5.0.md" 2>/dev/null || true
+upload "$NOTES" "release-notes-v3.0.md"
+upload "$ROOT/docs/使用说明-3.0.md" "使用说明.md" 2>/dev/null || true
+upload "$ROOT/docs/验收报告-3.0.md" "acceptance-report-3.0.md" 2>/dev/null || true
 
 echo
 echo "完成： https://github.com/$LOGIN/$REPO/releases/tag/$TAG"

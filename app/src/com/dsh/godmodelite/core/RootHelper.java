@@ -157,6 +157,48 @@ public final class RootHelper {
         return outputHasComponent(tail, comp, pkg);
     }
 
+    // ==================== LSPosed 诊断（root 读取） ====================
+
+    /**
+     * 用 root 读取 LSPosed 的安装/运行/配置/日志，返回多行诊断文本。
+     * 只读操作：ls / cat / grep / getprop / ps，不会修改任何文件。
+     */
+    public static String lsposedDiagnostics(Context ctx) {
+        if (!isRoot()) {
+            return "未获得 root 权限，无法读取 LSPosed 配置。\n可用「打开 LSPosed」到管理器里查看模块是否启用、作用域是否勾选。";
+        }
+        String script = "echo '--- 设备 ---'; "
+                + "getprop ro.product.model; getprop ro.build.version.release; "
+                + "echo '--- LSPosed 管理器 ---'; "
+                + "PM=$(command -v pm || echo /system/bin/pm); $PM path org.lsposed.manager 2>/dev/null || echo '未找到 org.lsposed.manager'; "
+                + "echo '--- LSPosed 安装目录 ---'; "
+                + "ls -d /data/adb/lspd /data/misc/lspd /data/adb/modules/*lsposed* 2>/dev/null; "
+                + "echo '--- zygisk_lsposed/module.prop ---'; "
+                + "cat /data/adb/modules/zygisk_lsposed/module.prop 2>/dev/null | head -10; "
+                + "echo '--- lspd 进程 ---'; "
+                + "ps -A 2>/dev/null | grep -i 'lspd\\|lsposed' | head -8; "
+                + "echo '--- config 目录 ---'; "
+                + "ls -la /data/adb/lspd/config 2>/dev/null; "
+                + "echo '--- 本模块是否写入 config（0=否） ---'; "
+                + "grep -a -c 'com.dsh.godmodelite' /data/adb/lspd/config/* 2>/dev/null; "
+                + "echo '--- config 中的应用包名（前20） ---'; "
+                + "grep -a -o 'com\\.[A-Za-z0-9_.]*' /data/adb/lspd/config/* 2>/dev/null | sed 's/.*://' | sort -u | head -20; "
+                + "echo '--- LSPosed 日志中的本模块 ---'; "
+                + "grep -a -h 'GodModeLite\\|godmodelite' /data/adb/lspd/log/* 2>/dev/null | tail -8; "
+                + "echo '--- 完 ---'";
+        String out = exec(script);
+        if (out == null || out.trim().length() == 0) {
+            return "root 命令没有输出，可能被 SELinux 或 root 管理器限制。";
+        }
+        return out.trim();
+    }
+
+    /** 读取 root 才能看到的 LSPosed 配置里是否出现本模块包名（best effort）。 */
+    public static boolean lsposedConfigHasModule() {
+        String out = exec("grep -a -l 'com.dsh.godmodelite' /data/adb/lspd/config/* 2>/dev/null | head -1");
+        return out != null && out.indexOf("godmodelite") >= 0;
+    }
+
     // ==================== 系统布局边界（root，全局显示所有控件边框） ====================
 
     /**

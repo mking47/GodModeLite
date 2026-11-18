@@ -27,6 +27,10 @@ public final class ConfigStore {
     private static final String KEY_AUTO_BACKUP = "auto_backup";
     /** v5：应用列表布局（0 列表 / 1 瀑布流）。 */
     private static final String KEY_LAYOUT = "layout_mode";
+    /** v5.1：LSPosed 模块心跳（最近一次模块在目标进程生效的包名/时间）与日志。 */
+    private static final String KEY_MODULE_PKG = "module_last_pkg";
+    private static final String KEY_MODULE_TIME = "module_last_time";
+    private static final String KEY_MODULE_LOG = "module_log";
     private static final String KEY_BALL_X = "ball_x";
     private static final String KEY_BALL_Y = "ball_y";
     // ===== v3 新增键 =====
@@ -91,6 +95,10 @@ public final class ConfigStore {
     private static int sLayoutMode = 0;
     /** v5：无障碍服务当前是否已连接（运行期状态，不持久化；给跨进程模块判断是否已有悬浮球）。 */
     private static boolean sA11yConnected = false;
+    /** v5.1：模块心跳（跨进程写入）与最近日志。 */
+    private static String sModuleLastPkg = null;
+    private static long sModuleLastTime = 0L;
+    private static String sModuleLog = null;
     /** 悬浮球上次拖动后的屏幕坐标；BALL_POS_UNSET 表示还没拖过。 */
     private static int sBallX = BALL_POS_UNSET;
     private static int sBallY = BALL_POS_UNSET;
@@ -130,6 +138,9 @@ public final class ConfigStore {
         sAutoBackup = true;
         sLayoutMode = LAYOUT_LIST;
         sA11yConnected = false;
+        sModuleLastPkg = null;
+        sModuleLastTime = 0L;
+        sModuleLog = null;
         sBallX = BALL_POS_UNSET;
         sBallY = BALL_POS_UNSET;
         sBallStyle = BALL_STYLE_EYE;
@@ -144,6 +155,9 @@ public final class ConfigStore {
         sBallVisible = sPrefs.getBoolean(KEY_BALL_VISIBLE, false);
         sAutoBackup = sPrefs.getBoolean(KEY_AUTO_BACKUP, true);
         sLayoutMode = sPrefs.getInt(KEY_LAYOUT, LAYOUT_LIST);
+        sModuleLastPkg = sPrefs.getString(KEY_MODULE_PKG, null);
+        sModuleLastTime = sPrefs.getLong(KEY_MODULE_TIME, 0L);
+        sModuleLog = sPrefs.getString(KEY_MODULE_LOG, null);
         sBallX = sPrefs.getInt(KEY_BALL_X, BALL_POS_UNSET);
         sBallY = sPrefs.getInt(KEY_BALL_Y, BALL_POS_UNSET);
         sBallStyle = normalizeStyle(sPrefs.getInt(KEY_BALL_STYLE, BALL_STYLE_EYE));
@@ -544,6 +558,58 @@ public final class ConfigStore {
             return FILTER_ALL;
         }
         return mode;
+    }
+
+    // ===================== LSPosed 模块心跳（v5.1） =====================
+
+    /** 模块在目标进程生效时写入心跳：包名 + 时间（毫秒）。 */
+    public static void setModuleHeartbeat(String pkg, long time) {
+        synchronized (LOCK) {
+            sModuleLastPkg = pkg;
+            sModuleLastTime = time;
+            if (sPrefs != null) {
+                sPrefs.edit().putString(KEY_MODULE_PKG, pkg).putLong(KEY_MODULE_TIME, time).apply();
+            }
+        }
+    }
+
+    /** 最近一次模块心跳的包名；没有返回 null。 */
+    public static String getModuleLastPkg() {
+        synchronized (LOCK) {
+            return sModuleLastPkg;
+        }
+    }
+
+    /** 最近一次模块心跳时间（毫秒）；没有返回 0。 */
+    public static long getModuleLastTime() {
+        synchronized (LOCK) {
+            return sModuleLastTime;
+        }
+    }
+
+    /** 追加一行模块日志（最多保留约 4KB，供 App 内诊断展示）。 */
+    public static void appendModuleLog(String line) {
+        if (line == null || line.length() == 0) {
+            return;
+        }
+        synchronized (LOCK) {
+            String old = sModuleLog == null ? "" : sModuleLog;
+            String merged = line + "\n" + old;
+            if (merged.length() > 4096) {
+                merged = merged.substring(0, 4096);
+            }
+            sModuleLog = merged;
+            if (sPrefs != null) {
+                sPrefs.edit().putString(KEY_MODULE_LOG, merged).apply();
+            }
+        }
+    }
+
+    /** 最近模块日志（新的在前）；没有返回空串。 */
+    public static String getModuleLog() {
+        synchronized (LOCK) {
+            return sModuleLog == null ? "" : sModuleLog;
+        }
     }
 
     // ===================== 应用列表布局（v5） =====================

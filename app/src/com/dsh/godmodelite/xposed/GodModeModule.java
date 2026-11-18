@@ -51,16 +51,15 @@ public class GodModeModule implements IXposedHookLoadPackage {
             if (OWN_PACKAGE.equals(pkg) || ANDROID_PACKAGE.equals(pkg)) {
                 return;
             }
-            // 2. 只处理应用主进程（:remote / :push 等进程没有正常 Activity，注入也没用）
-            if (!lpparam.isFirstApplication) {
-                return;
-            }
+            // 2. v5.1：不再要求 isFirstApplication——部分应用的界面跑在 :ui 等子进程；
+            //    hook 的是 Activity 类，没有界面的进程不会触发，开销可忽略。
             // 3. 防御性去重
             if (!HOOKED_PACKAGES.add(pkg)) {
                 return;
             }
             hookActivityMethods();
-            log("已注入进程: " + pkg);
+            log("已注入进程: " + pkg + " process=" + lpparam.processName
+                    + " first=" + lpparam.isFirstApplication);
         } catch (Throwable t) {
             log("handleLoadPackage 失败: " + pkg);
             logThrowable(t);
@@ -87,6 +86,27 @@ public class GodModeModule implements IXposedHookLoadPackage {
             });
         } catch (Throwable t) {
             log("hook Activity.onResume 失败");
+            logThrowable(t);
+        }
+
+        // onPostResume（after）：onResume 之后再补一次，提升重启后首次打开的命中率
+        try {
+            XposedHelpers.findAndHookMethod(Activity.class, "onPostResume", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    try {
+                        Object target = param == null ? null : param.thisObject;
+                        if (target instanceof Activity) {
+                            ModuleEngine.onPostResume((Activity) target);
+                        }
+                    } catch (Throwable t) {
+                        log("onPostResume hook 失败");
+                        logThrowable(t);
+                    }
+                }
+            });
+        } catch (Throwable t) {
+            log("hook Activity.onPostResume 失败");
             logThrowable(t);
         }
 

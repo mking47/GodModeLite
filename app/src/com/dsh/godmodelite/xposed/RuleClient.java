@@ -43,6 +43,13 @@ public final class RuleClient {
     public static final int DEFAULT_BALL_SIZE_DP = 48;
     public static final int DEFAULT_BALL_ALPHA = 235;
 
+    /** v5.1：模块心跳/日志节流（避免每次 onResume 都跨进程写）。 */
+    private static final long HEARTBEAT_INTERVAL_MS = 60000L;
+    private static long sLastHeartbeat = 0L;
+    /** v5.1：规则本地缓存（写在目标应用自己的私有 SharedPreferences，重启后 provider 不可用时兜底）。 */
+    private static final String CACHE_PREFS = "gm_lite_module_cache";
+    private static final String CACHE_KEY_PREFIX = "rules_";
+
     /** 单包缓存（模块进程里每个包都是独立进程，单条足够）。 */
     private static RuleData sCache;
     private static String sCachePkg;
@@ -77,8 +84,11 @@ public final class RuleClient {
                 sCachePkg = pkg;
                 sCacheTime = SystemClock.elapsedRealtime();
             }
+            saveCache(context, pkg, data);
+            return data;
         }
-        return data;
+        // provider 不可用（例如重启后主应用还没被拉起）：用上次成功拉到并缓存的规则兜底
+        return loadCache(context, pkg);
     }
 
     /** 清空内存缓存（主应用里刚增删规则、或用户点「刷新规则」时调用）。 */
@@ -231,6 +241,118 @@ public final class RuleClient {
         } catch (Throwable t) {
             log("写入规则失败: " + t);
             return false;
+        }
+    }
+
+    // ==================== 诊断：心跳 / 日志 ====================
+
+    /** 模块生效时向主应用写一次心跳（60 秒节流）；失败静默。 */
+    public static void heartbeat(Context context, String pkg) {
+        if (context == null || pkg == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        synchronized (RuleClient.class) {
+            if (now - sLastHeartbeat < HEARTBEAT_INTERVAL_MS) {
+                return;
+            }
+            sLastHeartbeat = now;
+        }
+        try {
+            ContentValues values = new ContentValues();
+            values.put("op", "heartbeat");
+            values.put("pkg", pkg);
+            values.put("time", now);
+            context.getContentResolver().insert(Uri.parse(RULES_URI), values);
+        } catch (Throwable t) {
+            // 主应用不可用：忽略
+        }
+    }
+
+    /** 把模块日志写给主应用（供 App 内诊断展示）；失败静默。 */
+    public static void sendLog(Context context, String line) {
+        if (context == null || line == null) {
+            return;
+        }
+        try {
+            ContentValues values = new ContentValues();
+            values.put("op", "log");
+            values.put("line", line);
+            context.getContentResolver().insert(Uri.parse(RULES_URI), values);
+        } catch (Throwable t) {
+            // 忽略
+        }
+    }
+
+    // ==================== 规则本地缓存（目标应用私有） ====================
+
+    /** 保存一次成功的规则快照到目标应用私有 SharedPreferences。 */
+    private static void saveCache(Context context, String pkg, RuleData data) {
+        if (context == null || pkg == null || data == null) {
+            return;
+        }
+        try {
+            JSONObject root = new JSONObject();
+            root.put("pkg", pkg);
+            root.put("blocking", data.blocking);
+            root.put("ballStyle", data.ballStyle);
+            root.put("ballSizeDp", data.ballSizeDp);
+            root.put("ballAlpha", data.ballAlpha);
+            root.put("ballVisible", data.ballVisible);
+            root.put("a11yConnected", data.a11yConnected);
+            root.put("ts", System.currentTimeMillis());
+            JSONArray arr = new JSONArray();
+            if (data.rules != null) {
+                for (int i = 0; i < data.rules.size(); i++) {
+                    RuleSpec rule = data.rules.get(i);
+                    if (rule != null) {
+                        arr.put(rule.toJson());
+                    }
+                }
+            }
+            root.put("rules", arr);
+            context.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
+                    .edit().putString(CACHE_KEY_PREFIX + pkg, root.toString()).apply();
+        } catch (Throwable t) {
+            // 缓存失败不影响本次规则
+        }
+    }
+
+    /** 从本地缓存读回规则快照；没有/损坏返回 null。 */
+    private static RuleData loadCache(Context context, String pkg) {
+        if (context == null || pkg == null) {
+            return null;
+        }
+        try {
+            String raw = context.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
+                    .getString(CACHE_KEY_PREFIX + pkg, null);
+            if (raw == null || raw.length() == 0) {
+                return null;
+            }
+            JSONObject root = new JSONObject(raw);
+            JSONArray arr = root.optJSONArray("rules");
+            List<RuleSpec> rules = new ArrayList<RuleSpec>();
+            if (arr != null) {
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject object = arr.optJSONObject(i);
+                    if (object != null) {
+                        RuleSpec rule = RuleSpec.fromJson(object);
+                        if (rule.pkg == null || rule.pkg.length() == 0) {
+                            rule.pkg = pkg;
+                        }
+                        rules.add(rule);
+                    }
+                }
+            }
+            log("provider 不可用，使用本地缓存规则 " + rules.size() + " 条 pkg=" + pkg);
+            return new RuleData(rules, root.optBoolean("blocking", true),
+                    root.optInt("ballStyle", DEFAULT_BALL_STYLE),
+                    root.optInt("ballSizeDp", DEFAULT_BALL_SIZE_DP),
+                    root.optInt("ballAlpha", DEFAULT_BALL_ALPHA),
+                    root.optBoolean("ballVisible", false),
+                    root.optBoolean("a11yConnected", false));
+        } catch (Throwable t) {
+            return null;
         }
     }
 
