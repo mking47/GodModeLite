@@ -75,6 +75,10 @@ public class HelpActivity extends Activity {
                     "「遮挡」：白色蒙版盖住元素并拦截点击，无障碍模式和模块模式都生效（mode=mask）。",
                     "「真删」：把元素 setVisibility(GONE)，只在 LSPosed 模块已启用且作用域勾选时真正生效；"
                             + "否则按遮挡处理，但规则照常保存（mode=gone）。",
+                    "v5.2 真删增强：模块会按 viewId → 屏幕坐标 → 节点路径 → 文字/contentDescription 多种策略匹配，"
+                            + "一条规则命中多个 View 时全部隐藏；并在布局变化/列表滚动后持续把元素强制回 GONE"
+                            + "（应用自己把它改回可见也会被再次隐藏）。如果仍不生效，到「LSPosed 诊断」看日志里的"
+                            + " apply … unmatched=… 计数，或重新在模块的图层选择里真删（规则会绑定当前规则的 id）。",
                     "规则页：点一下规则行启用 / 停用，长按删除；「启用屏蔽」总开关关闭后所有规则临时失效。"
             },
             {
@@ -133,7 +137,7 @@ public class HelpActivity extends Activity {
             },
             {
                     "关于",
-                    "上帝模式 Lite v5.1 · 纯 framework、无 AndroidX、API 21~28 可用。",
+                    "上帝模式 Lite v5.2 · 纯 framework、无 AndroidX、API 21~28 可用。",
                     "请只用于自己的设备：遮挡 / 删除他人设备的界面内容属于违规行为。"
             }
     };

@@ -110,6 +110,27 @@ public class GodModeModule implements IXposedHookLoadPackage {
             logThrowable(t);
         }
 
+        // onPause（after）：暂停持续强制隐藏，移除布局/滚动监听（v5.2）
+        try {
+            XposedHelpers.findAndHookMethod(Activity.class, "onPause", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    try {
+                        Object target = param == null ? null : param.thisObject;
+                        if (target instanceof Activity) {
+                            ModuleEngine.onPause((Activity) target);
+                        }
+                    } catch (Throwable t) {
+                        log("onPause hook 失败");
+                        logThrowable(t);
+                    }
+                }
+            });
+        } catch (Throwable t) {
+            log("hook Activity.onPause 失败");
+            logThrowable(t);
+        }
+
         // onDestroy（after）：清理我们加进这个 Activity 的所有 View，避免泄漏/残留
         try {
             XposedHelpers.findAndHookMethod(Activity.class, "onDestroy", new XC_MethodHook() {

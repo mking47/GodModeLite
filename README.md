@@ -3,13 +3,14 @@
 > 安卓界面元素工具：**root 免框架遮挡** + **LSPosed 模块真删** 双模式，带唯一悬浮球、全图层选择、规则自动备份、列表/瀑布流布局。<br>
 > 不依赖 Xposed 也能用（root + 无障碍）；要让别的 App 里的元素**真正消失**，把本 APK 同时作为 LSPosed 模块启用即可。
 
-当前版本：**v5.1**（[Releases](https://github.com/mking47/GodModeLite/releases)）
+当前版本：**v5.2**（[Releases](https://github.com/mking47/GodModeLite/releases)）
 
 ## 功能
 
 - **双模式**
   - root 免框架模式：无障碍读节点树 + 悬浮窗遮挡/拦截点击，一键 root 自动配置；
   - LSPosed 模块模式：hook 目标进程 `Activity.onResume`，`setVisibility(GONE)` 真正删除 View，同时支持进程内图层选择。
+- **真删增强（v5.2）**：模块按 viewId → 屏幕坐标 → 路径 → 文字/contentDescription 多策略匹配，一条规则命中多个 View 全部隐藏；布局/滚动后持续强制 `GONE`（应用改回可见也会再压回去），按规则 id 精确还原不闪烁；诊断日志含 `unmatched` 计数。
 - **模块可验证 + root 诊断（v5.1）**：模块生效时向主应用写心跳，状态卡显示「模块已生效 · 心跳」；「更多 → LSPosed 诊断」用 root 只读查看 LSPosed 目录/进程/config/日志，定位「勾选后重启不生效」；模块规则会缓存到目标应用私有目录，重启后 provider 不可用时也能生效。
 - **唯一悬浮球（v5）**：全局最多一个（无障碍球存在时模块不再加球）；默认关闭，**只能手动打开**；重新打开 App 不会自动恢复；关闭后任何界面都不显示；5 种自绘图标、3 尺寸、3 档透明度、可拖动并**记住位置**。
 - **图层选择**：把目标应用所有可见控件画成彩色矩形（按层级 6 色 + 文字/ID 标签），点选后「遮挡 / 真删 / 取消」。
@@ -46,8 +47,8 @@
 依赖：`aapt2`、`javac 17`、`dx`（build-tools 29）、`zipalign`、`apksigner`、`android.jar`(API 23)。
 
 ```sh
-bash toolchain/build.sh app dist/GodModeLite-5.1.apk   # Xposed API 82 仅编译期使用，不打包
-bash toolchain/verify.sh dist/GodModeLite-5.1.apk      # 静态验收
+bash toolchain/build.sh app dist/GodModeLite-5.2.apk   # Xposed API 82 仅编译期使用，不打包
+bash toolchain/verify.sh dist/GodModeLite-5.2.apk      # 静态验收
 bash toolchain/test/run_tests.sh                       # 备份格式 + 自动备份轮转 JVM 自测
 ```
 
@@ -67,8 +68,8 @@ releases/            发布用 APK / 源码包 / 发布说明 / SHA256
 
 ## 文档
 
-- [使用说明 v5.1](docs/使用说明-5.1.md)
-- [验收报告 v5.1](docs/验收报告-5.1.md)
+- [使用说明 v5.2](docs/使用说明-5.2.md)
+- [验收报告 v5.2](docs/验收报告-5.2.md)
 - [逆向分析](analysis/原软件分析.md)
 
 ## 免责声明

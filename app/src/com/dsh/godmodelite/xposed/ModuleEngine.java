@@ -12,11 +12,13 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -111,6 +113,14 @@ public final class ModuleEngine {
     private static final WeakHashMap<View, Integer> HIDDEN_VIEWS =
             new WeakHashMap<View, Integer>();
 
+    /** v5.2：被隐藏的 View 对应哪条规则（用于「规则删除后精确还原」，不再每轮全部还原造成闪烁）。 */
+    private static final WeakHashMap<View, String> HIDDEN_RULES =
+            new WeakHashMap<View, String>();
+
+    /** v5.2：匹配时单个策略最多收集的目标数 / 遍历节点上限（防超大 View 树卡顿）。 */
+    private static final int MAX_MATCH_PER_RULE = 20;
+    private static final int MAX_SCAN_VIEWS = 4000;
+
     /** 各包悬浮球最后一次拖动位置（进程内记忆，避免切换 Activity 后跳回默认位置）。 */
     private static final HashMap<String, int[]> BALL_POSITIONS = new HashMap<String, int[]>();
 
@@ -171,6 +181,9 @@ public final class ModuleEngine {
             // v5.1：向主应用写心跳 + 诊断日志，App 里可据此判断模块是否真的生效
             RuleClient.heartbeat(activity, pkg);
             diagLog(activity, "onResume pkg=" + pkg + " process=" + currentProcessName());
+            state.paused = false;
+            installEnforcers(activity, state);
+            startPeriodicReapply(activity, state);
             scheduleRuleApply(activity, state, RULE_DELAY_FIRST);
             scheduleRuleApply(activity, state, RULE_DELAY_SECOND);
         } catch (Throwable t) {
@@ -232,6 +245,170 @@ public final class ModuleEngine {
             // 忽略
         }
         return "?";
+    }
+
+    /** v5.2：Activity.onPause（after）时调用：暂停持续强制隐藏，移除布局/滚动监听。 */
+    public static void onPause(Activity activity) {
+        if (activity == null) {
+            return;
+        }
+        try {
+            ActivityState state = stateOf(activity);
+            if (state == null) {
+                return;
+            }
+            state.paused = true;
+            removeEnforcers(state);
+            stopPeriodicReapply(state);
+        } catch (Throwable t) {
+            log("onPause 处理失败");
+            logThrowable(t);
+        }
+    }
+
+    /** 挂布局/滚动监听：应用重新布局或列表滚动后重新套规则（GONE 被改回来也能再压回去）。 */
+    private static void installEnforcers(final Activity activity, final ActivityState state) {
+        if (activity == null || state == null || state.decor == null) {
+            return;
+        }
+        removeEnforcers(state);
+        try {
+            final View decor = state.decor;
+            ViewTreeObserver observer = decor.getViewTreeObserver();
+            if (observer == null || !observer.isAlive()) {
+                return;
+            }
+            state.layoutListener = new ViewTreeObserver.OnGlobalLayoutListener() {
+                @Override
+                public void onGlobalLayout() {
+                    scheduleReapply(activity, state);
+                }
+            };
+            observer.addOnGlobalLayoutListener(state.layoutListener);
+            state.scrollListener = new ViewTreeObserver.OnScrollChangedListener() {
+                @Override
+                public void onScrollChanged() {
+                    scheduleReapply(activity, state);
+                }
+            };
+            observer.addOnScrollChangedListener(state.scrollListener);
+            state.listenerDecor = decor;
+        } catch (Throwable t) {
+            log("安装持续隐藏监听失败");
+            logThrowable(t);
+        }
+    }
+
+    /** 移除布局/滚动监听（幂等）。 */
+    private static void removeEnforcers(ActivityState state) {
+        if (state == null) {
+            return;
+        }
+        View decor = state.listenerDecor;
+        state.listenerDecor = null;
+        try {
+            if (decor != null) {
+                ViewTreeObserver observer = decor.getViewTreeObserver();
+                if (observer != null && observer.isAlive()) {
+                    if (state.layoutListener != null) {
+                        observer.removeOnGlobalLayoutListener(state.layoutListener);
+                    }
+                    if (state.scrollListener != null) {
+                        observer.removeOnScrollChangedListener(state.scrollListener);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+            // 忽略
+        }
+        state.layoutListener = null;
+        state.scrollListener = null;
+    }
+
+    /** 防抖后重新应用最近一次规则快照（不再跨进程查询，只做本地再隐藏）。 */
+    private static void scheduleReapply(final Activity activity, final ActivityState state) {
+        if (activity == null || state == null || state.paused || state.destroyed) {
+            return;
+        }
+        if (state.applying) {
+            return;
+        }
+        final Handler handler = state.handler;
+        if (handler == null || state.lastData == null) {
+            return;
+        }
+        if (state.reapplyRunnable == null) {
+            state.reapplyRunnable = new Runnable() {
+                @Override
+                public void run() {
+                    if (state.paused || state.destroyed || state.lastData == null) {
+                        return;
+                    }
+                    applyRules(activity, state, state.lastData);
+                }
+            };
+        }
+        long delay = 120L;
+        long sinceLast = SystemClock.uptimeMillis() - state.lastApplyTime;
+        if (sinceLast >= 0 && sinceLast < 400L) {
+            // 避免「应用规则→布局变化→再次应用」的高频自激：至少间隔 400ms
+            delay = 400L - sinceLast;
+        }
+        try {
+            handler.removeCallbacks(state.reapplyRunnable);
+            handler.postDelayed(state.reapplyRunnable, delay);
+        } catch (Throwable ignored) {
+            // 忽略
+        }
+    }
+
+    /** onResume 后的周期兜底：每 900ms 再压一次，最多 40 次；每 5 次重新拉一次规则。 */
+    private static void startPeriodicReapply(final Activity activity, final ActivityState state) {
+        stopPeriodicReapply(state);
+        if (state.handler == null) {
+            return;
+        }
+        state.periodicTicks = 0;
+        state.periodicRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (state.destroyed || state.paused) {
+                    return;
+                }
+                state.periodicTicks++;
+                if (state.periodicTicks % 5 == 0 || state.lastData == null) {
+                    scheduleRuleApply(activity, state, 0L);
+                } else {
+                    scheduleReapply(activity, state);
+                }
+                if (state.periodicTicks < 40) {
+                    try {
+                        state.handler.postDelayed(this, 900L);
+                    } catch (Throwable ignored) {
+                        // 忽略
+                    }
+                }
+            }
+        };
+        try {
+            state.handler.postDelayed(state.periodicRunnable, 900L);
+        } catch (Throwable ignored) {
+            // 忽略
+        }
+    }
+
+    private static void stopPeriodicReapply(ActivityState state) {
+        if (state == null) {
+            return;
+        }
+        if (state.handler != null && state.periodicRunnable != null) {
+            try {
+                state.handler.removeCallbacks(state.periodicRunnable);
+            } catch (Throwable ignored) {
+                // 忽略
+            }
+        }
+        state.periodicRunnable = null;
     }
 
     /** Activity.onDestroy（after）时调用：移除本 Activity 上所有我们加的 View，释放 handler。 */
@@ -300,6 +477,27 @@ public final class ModuleEngine {
         /** 图层选择的自绘 View，关闭时清空其候选列表并置空引用（v3 内存优化）。 */
         PickerView pickerView;
         final List<View> maskViews = new ArrayList<View>();
+        /** v5.2：规则 id → 已存在的遮挡层，持续刷新时原地更新位置而不是重建（避免闪烁）。 */
+        final HashMap<String, View> maskByRule = new HashMap<String, View>();
+
+        // ===== v5.2：持续强制隐藏（布局/滚动变化后自动重新 GONE，解决 setVisibility(GONE) 被应用改回来的问题） =====
+        /** 最近一次成功拉取的规则快照：重新应用时直接用，避免频繁跨进程查询。 */
+        RuleClient.RuleData lastData;
+        /** 当前是否处于暂停（onPause 后不再强制刷新）。 */
+        boolean paused;
+        boolean destroyedFlag;
+        /** 监听器挂载的 decorView，移除时用。 */
+        View listenerDecor;
+        ViewTreeObserver.OnGlobalLayoutListener layoutListener;
+        ViewTreeObserver.OnScrollChangedListener scrollListener;
+        /** 防抖后的重新应用任务。 */
+        Runnable reapplyRunnable;
+        /** 周期兜底任务（onResume 后最多跑 40 次）。 */
+        Runnable periodicRunnable;
+        int periodicTicks = 0;
+        /** v5.2：本轮是否正在应用规则 / 上次应用时间（防止布局监听自激循环）。 */
+        boolean applying;
+        long lastApplyTime = 0L;
     }
 
     // ==================== 规则应用 ====================
@@ -379,12 +577,14 @@ public final class ModuleEngine {
         }
     }
 
-    /** 主线程应用一轮规则：还原上一轮真删 → 清理旧遮挡 → 逐条重新应用。 */
+    /** 主线程应用一轮规则：清理旧遮挡 → 逐条匹配（多目标）→ 真删/遮挡 → 精确还原失效规则。 */
     private static void applyRules(Activity activity, ActivityState state, RuleClient.RuleData data) {
         if (activity == null || state == null || data == null) {
             return;
         }
+        state.applying = true;
         try {
+            state.lastData = data;
             // 0. 同步 provider 里的悬浮球设置（样式 / 尺寸 / 透明度），变更会即时作用到已存在的球
             updateBallSettings(data);
             if (sBallVisible) {
@@ -405,22 +605,23 @@ public final class ModuleEngine {
                 decor = (ViewGroup) view;
                 state.decor = decor;
             }
-            // 1. 先把上一轮被我们 GONE 掉的 View 还原回原始可见性（规则仍生效时本轮马上会再隐藏）
-            restoreHiddenViews();
-            // 2. 遮挡层每轮重建：规则被删除/停用后能自然消失，也不会重复叠加
-            clearMasks(state);
             if (!data.blocking) {
-                // 总开关关闭：只清理遮挡，不再隐藏新元素
+                // 总开关关闭：清掉所有遮挡、把真删的 View 全部还原
+                clearMasks(state);
+                restoreAllHidden();
                 bringBallToFront(state);
                 return;
             }
-            // 3. 规则 = provider 返回的 + 内存兜底规则（去重）
+            // 2. 规则 = provider 返回的 + 内存兜底规则（去重）
             List<RuleClient.RuleSpec> rules = new ArrayList<RuleClient.RuleSpec>();
             if (data.rules != null) {
                 rules.addAll(data.rules);
             }
             rules.addAll(localRules(state.pkg));
             Set<String> applied = new HashSet<String>();
+            int goneCount = 0;
+            int maskCount = 0;
+            int unmatched = 0;
             for (int i = 0; i < rules.size(); i++) {
                 RuleClient.RuleSpec rule;
                 try {
@@ -438,43 +639,86 @@ public final class ModuleEngine {
                     continue;
                 }
                 try {
-                    applyOneRule(decor, state, rule);
+                    List<View> targets = findTargetViews(decor, rule);
+                    if (targets == null || targets.isEmpty()) {
+                        unmatched++;
+                        continue;
+                    }
+                    for (int k = 0; k < targets.size(); k++) {
+                        View target = targets.get(k);
+                        if (target == null || target == decor || isInternal(target)) {
+                            continue;
+                        }
+                        if ("gone".equals(rule.mode)) {
+                            hideNow(target, rule.id);
+                            goneCount++;
+                        } else {
+                            addMaskView(decor, state, target, rule);
+                            maskCount++;
+                        }
+                    }
                 } catch (Throwable t) {
                     // 单条规则失败不影响其它规则
                     log("应用规则失败: " + rule.describe());
                     logThrowable(t);
                 }
             }
+            // 3. 精确清理：只移除规则已不存在/被停用的遮挡层与真删，避免每轮重建造成闪烁
+            clearMasksExcept(state, applied);
+            restoreHiddenViewsExcept(applied);
             bringBallToFront(state);
+            if (unmatched > 0 || goneCount > 0) {
+                diagLog(activity, "apply pkg=" + state.pkg + " rules=" + applied.size()
+                        + " gone=" + goneCount + " mask=" + maskCount + " unmatched=" + unmatched);
+            }
         } catch (Throwable t) {
             log("应用规则失败");
             logThrowable(t);
+        } finally {
+            state.applying = false;
+            state.lastApplyTime = SystemClock.uptimeMillis();
         }
     }
 
+    /** 一条规则可能命中多个 View（列表复用/重复布局），逐个处理，提升真删命中率。 */
     private static void applyOneRule(ViewGroup decor, ActivityState state, RuleClient.RuleSpec rule) {
-        View target = findTargetView(decor, rule);
-        if (target == null || target == decor || isInternal(target)) {
+        // v5.2：保留旧入口，实际逻辑已合并进 applyRules 的多目标循环
+        List<View> targets = findTargetViews(decor, rule);
+        if (targets == null) {
             return;
         }
-        if ("gone".equals(rule.mode)) {
-            hideNow(target);
-        } else {
-            addMaskView(decor, state, target, rule);
+        for (int i = 0; i < targets.size(); i++) {
+            View target = targets.get(i);
+            if (target == null || target == decor || isInternal(target)) {
+                continue;
+            }
+            if ("gone".equals(rule.mode)) {
+                hideNow(target, rule.id);
+            } else {
+                addMaskView(decor, state, target, rule);
+            }
         }
     }
 
-    /** mode=gone：真删。记录原始可见性，规则失效/关闭屏蔽时可还原。 */
-    private static void hideNow(View view) {
+    /** mode=gone：真删。记录原始可见性与规则 id，规则失效/关闭屏蔽时可精确还原。 */
+    private static void hideNow(View view, String ruleId) {
         if (view == null) {
             return;
         }
         try {
             if (view.getVisibility() != View.GONE) {
                 synchronized (HIDDEN_VIEWS) {
-                    HIDDEN_VIEWS.put(view, Integer.valueOf(view.getVisibility()));
+                    if (!HIDDEN_VIEWS.containsKey(view)) {
+                        HIDDEN_VIEWS.put(view, Integer.valueOf(view.getVisibility()));
+                    }
+                    HIDDEN_RULES.put(view, ruleId);
                 }
                 view.setVisibility(View.GONE);
+            } else {
+                // 已经是 GONE 也要记录规则归属（应用可能下一帧改回来）
+                synchronized (HIDDEN_VIEWS) {
+                    HIDDEN_RULES.put(view, ruleId);
+                }
             }
         } catch (Throwable t) {
             log("隐藏 View 失败");
@@ -482,22 +726,38 @@ public final class ModuleEngine {
         }
     }
 
-    /** 把上一轮记录的真删还原（只还原仍是 GONE 的，避免覆盖应用自己的状态变化）。 */
-    private static void restoreHiddenViews() {
-        List<Map.Entry<View, Integer>> snapshot;
+    /** 还原所有被我们 GONE 的 View（关闭屏蔽时用）。 */
+    private static void restoreAllHidden() {
+        restoreHiddenViewsExcept(null);
+    }
+
+    /**
+     * 精确还原：只还原规则已经不存在/被停用的 View；keepRuleIds 为 null 时全部还原。
+     * 这样持续强制隐藏时不会每轮 restore 再 GONE 造成闪烁。
+     */
+    private static void restoreHiddenViewsExcept(Set<String> keepRuleIds) {
+        List<View> toRestore = new ArrayList<View>();
         synchronized (HIDDEN_VIEWS) {
-            snapshot = new ArrayList<Map.Entry<View, Integer>>(HIDDEN_VIEWS.entrySet());
-            HIDDEN_VIEWS.clear();
-        }
-        for (int i = 0; i < snapshot.size(); i++) {
-            Map.Entry<View, Integer> entry = snapshot.get(i);
-            if (entry == null || entry.getKey() == null || entry.getValue() == null) {
-                continue;
+            List<View> views = new ArrayList<View>(HIDDEN_VIEWS.keySet());
+            for (int i = 0; i < views.size(); i++) {
+                View view = views.get(i);
+                String ruleId = HIDDEN_RULES.get(view);
+                if (keepRuleIds != null && ruleId != null && keepRuleIds.contains(ruleId)) {
+                    continue;
+                }
+                toRestore.add(view);
             }
-            View view = entry.getKey();
+            for (int i = 0; i < toRestore.size(); i++) {
+                HIDDEN_VIEWS.remove(toRestore.get(i));
+                HIDDEN_RULES.remove(toRestore.get(i));
+            }
+        }
+        for (int i = 0; i < toRestore.size(); i++) {
+            View view = toRestore.get(i);
             try {
-                if (view.getVisibility() == View.GONE) {
-                    view.setVisibility(entry.getValue().intValue());
+                if (view != null && view.getVisibility() == View.GONE) {
+                    // 交给系统默认可见性（原始值在 HIDDEN_VIEWS 里已移除，用 VISIBLE 兜底）
+                    view.setVisibility(View.VISIBLE);
                 }
             } catch (Throwable ignored) {
                 // 单个 View 还原失败不影响其它
@@ -538,24 +798,220 @@ public final class ModuleEngine {
 
     // ==================== 规则 → View 匹配 ====================
 
-    /** 优先级：viewId（资源名）→ path（decorView 子节点下标路径）→ cls+text。 */
-    private static View findTargetView(ViewGroup decor, RuleClient.RuleSpec rule) {
-        String viewId = rule.viewId;
-        if (viewId != null && viewId.length() > 0) {
-            View found = findViewByResourceName(decor, viewId);
-            if (found != null) {
-                return found;
+    /**
+     * v5.2：一条规则可能命中多个 View（列表复用/重复布局），全部返回。
+     * 优先级：viewId → 屏幕坐标（无障碍规则没有可靠 id/path 时最稳）→ path → cls+text/contentDescription。
+     */
+    private static List<View> findTargetViews(ViewGroup decor, RuleClient.RuleSpec rule) {
+        List<View> out = new ArrayList<View>();
+        if (decor == null || rule == null) {
+            return out;
+        }
+        int[] visited = new int[]{0};
+        if (rule.viewId != null && rule.viewId.length() > 0) {
+            collectByResourceName(decor, rule.viewId, out, visited);
+            if (!out.isEmpty()) {
+                return out;
             }
         }
-        String path = rule.path;
-        if (path != null && path.length() > 0) {
-            View found = findViewByPath(decor, path, rule.cls);
-            if (found != null) {
-                return found;
+        if (rule.r > rule.l && rule.b > rule.t) {
+            visited[0] = 0;
+            collectByBounds(decor, rule, out, visited);
+            if (!out.isEmpty()) {
+                return out;
+            }
+        }
+        if (rule.path != null && rule.path.length() > 0) {
+            View byPath = findViewByPath(decor, rule.path, rule.cls);
+            if (byPath != null && !isInternal(byPath)) {
+                out.add(byPath);
+            }
+            if (!out.isEmpty()) {
+                return out;
             }
         }
         if (rule.text != null && rule.text.length() > 0) {
-            return findViewByClassText(decor, rule.cls, rule.text);
+            visited[0] = 0;
+            collectByText(decor, rule.cls, rule.text, out, visited);
+        }
+        return out;
+    }
+
+    /** 收集所有资源名匹配的 View。 */
+    private static void collectByResourceName(View view, String viewId, List<View> out, int[] visited) {
+        if (view == null || out.size() >= MAX_MATCH_PER_RULE || isInternal(view)) {
+            return;
+        }
+        if (visited[0]++ > MAX_SCAN_VIEWS) {
+            return;
+        }
+        try {
+            if (viewId.equals(resourceNameOf(view))) {
+                out.add(view);
+            }
+        } catch (Throwable ignored) {
+            // 忽略单个 View 的取名失败
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            int count = 0;
+            try {
+                count = group.getChildCount();
+            } catch (Throwable ignored) {
+                return;
+            }
+            for (int i = 0; i < count && out.size() < MAX_MATCH_PER_RULE; i++) {
+                View child;
+                try {
+                    child = group.getChildAt(i);
+                } catch (Throwable t) {
+                    continue;
+                }
+                collectByResourceName(child, viewId, out, visited);
+            }
+        }
+    }
+
+    /** 收集屏幕坐标与规则记录范围一致的 View（用于无障碍抓的规则）。 */
+    private static void collectByBounds(View view, RuleClient.RuleSpec rule, List<View> out, int[] visited) {
+        if (view == null || out.size() >= MAX_MATCH_PER_RULE || isInternal(view)) {
+            return;
+        }
+        if (visited[0]++ > MAX_SCAN_VIEWS) {
+            return;
+        }
+        try {
+            if (boundsMatch(view, rule)) {
+                out.add(view);
+            }
+        } catch (Throwable ignored) {
+            // 忽略
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            int count = 0;
+            try {
+                count = group.getChildCount();
+            } catch (Throwable ignored) {
+                return;
+            }
+            for (int i = 0; i < count && out.size() < MAX_MATCH_PER_RULE; i++) {
+                View child;
+                try {
+                    child = group.getChildAt(i);
+                } catch (Throwable t) {
+                    continue;
+                }
+                collectByBounds(child, rule, out, visited);
+            }
+        }
+    }
+
+    /** 屏幕坐标/尺寸是否与规则记录一致（容差 1/4 尺寸，最少 24px）。 */
+    private static boolean boundsMatch(View view, RuleClient.RuleSpec rule) {
+        if (view == null || rule == null) {
+            return false;
+        }
+        if (rule.r <= rule.l || rule.b <= rule.t) {
+            return false;
+        }
+        if (rule.cls != null && rule.cls.length() > 0) {
+            try {
+                if (!rule.cls.equals(view.getClass().getName())) {
+                    return false;
+                }
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
+        int width = view.getWidth();
+        int height = view.getHeight();
+        if (width <= 0 || height <= 0) {
+            return false;
+        }
+        int[] location = new int[2];
+        view.getLocationOnScreen(location);
+        int viewCenterX = location[0] + width / 2;
+        int viewCenterY = location[1] + height / 2;
+        int ruleCenterX = (rule.l + rule.r) / 2;
+        int ruleCenterY = (rule.t + rule.b) / 2;
+        int ruleW = rule.r - rule.l;
+        int ruleH = rule.b - rule.t;
+        int tolX = Math.max(24, Math.min(ruleW, width) / 4);
+        int tolY = Math.max(24, Math.min(ruleH, height) / 4);
+        if (Math.abs(viewCenterX - ruleCenterX) > tolX || Math.abs(viewCenterY - ruleCenterY) > tolY) {
+            return false;
+        }
+        if (Math.abs(ruleW - width) > Math.max(72, width / 2)) {
+            return false;
+        }
+        if (Math.abs(ruleH - height) > Math.max(72, height / 2)) {
+            return false;
+        }
+        return true;
+    }
+
+    /** 收集文字或 contentDescription 匹配的 View（类名可选）。 */
+    private static void collectByText(View view, String cls, String text, List<View> out, int[] visited) {
+        if (view == null || out.size() >= MAX_MATCH_PER_RULE || isInternal(view)) {
+            return;
+        }
+        if (visited[0]++ > MAX_SCAN_VIEWS) {
+            return;
+        }
+        boolean classOk = true;
+        if (cls != null && cls.length() > 0) {
+            try {
+                classOk = cls.equals(view.getClass().getName());
+            } catch (Throwable ignored) {
+                classOk = true;
+            }
+        }
+        if (classOk && text.equals(textOf(view))) {
+            out.add(view);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            int count = 0;
+            try {
+                count = group.getChildCount();
+            } catch (Throwable ignored) {
+                return;
+            }
+            for (int i = 0; i < count && out.size() < MAX_MATCH_PER_RULE; i++) {
+                View child;
+                try {
+                    child = group.getChildAt(i);
+                } catch (Throwable t) {
+                    continue;
+                }
+                collectByText(child, cls, text, out, visited);
+            }
+        }
+    }
+
+    /** 取 View 的文字：TextView 文本或 contentDescription。 */
+    private static String textOf(View view) {
+        if (view == null) {
+            return null;
+        }
+        try {
+            if (view instanceof TextView) {
+                CharSequence text = ((TextView) view).getText();
+                if (text != null && text.length() > 0) {
+                    return text.toString();
+                }
+            }
+        } catch (Throwable ignored) {
+            // 继续尝试 contentDescription
+        }
+        try {
+            CharSequence description = view.getContentDescription();
+            if (description != null && description.length() > 0) {
+                return description.toString();
+            }
+        } catch (Throwable ignored) {
+            // 忽略
         }
         return null;
     }
@@ -697,6 +1153,16 @@ public final class ModuleEngine {
             // 只有 FrameLayout 根（PhoneWindow.DecorView）才能按 margin 精确定位
             return;
         }
+        try {
+            // v5.2：同一条规则已有遮挡层：只更新位置/尺寸，避免每轮重建造成闪烁
+            View existingMask = rule.id == null ? null : state.maskByRule.get(rule.id);
+            if (existingMask != null) {
+                updateMaskLayout(decor, state, existingMask, target);
+                return;
+            }
+        } catch (Throwable ignored) {
+            // 忽略，走重建流程
+        }
         if (state.maskViews.size() >= MAX_MASKS) {
             return;
         }
@@ -756,6 +1222,9 @@ public final class ModuleEngine {
             params.topMargin = top;
             decor.addView(mask, params);
             state.maskViews.add(mask);
+            if (rule.id != null) {
+                state.maskByRule.put(rule.id, mask);
+            }
         } catch (Throwable t) {
             // BadTokenException / 布局参数不匹配等：忽略这一条蒙版
             log("添加遮挡层失败");
@@ -771,6 +1240,91 @@ public final class ModuleEngine {
             removeView(state, state.maskViews.get(i));
         }
         state.maskViews.clear();
+        state.maskByRule.clear();
+    }
+
+    /** v5.2：只移除规则已不存在/被停用的遮挡层，保留仍生效的（原地更新）。 */
+    private static void clearMasksExcept(ActivityState state, Set<String> appliedRuleIds) {
+        if (state == null) {
+            return;
+        }
+        List<String> removeIds = new ArrayList<String>();
+        for (Map.Entry<String, View> entry : state.maskByRule.entrySet()) {
+            String ruleId = entry.getKey();
+            if (appliedRuleIds != null && ruleId != null && appliedRuleIds.contains(ruleId)) {
+                continue;
+            }
+            removeIds.add(ruleId);
+        }
+        for (int i = 0; i < removeIds.size(); i++) {
+            View mask = state.maskByRule.remove(removeIds.get(i));
+            if (mask != null) {
+                removeView(state, mask);
+                state.maskViews.remove(mask);
+            }
+        }
+    }
+
+    /** 更新已有遮挡层的位置/尺寸（目标滚动、布局变化时用）。 */
+    private static void updateMaskLayout(ViewGroup decor, ActivityState state, View mask, View target) {
+        if (decor == null || mask == null || target == null) {
+            return;
+        }
+        try {
+            if (target.getVisibility() != View.VISIBLE) {
+                mask.setVisibility(View.GONE);
+                return;
+            }
+            int width = target.getWidth();
+            int height = target.getHeight();
+            if (width < 4 || height < 4) {
+                return;
+            }
+            int[] targetLocation = new int[2];
+            int[] decorLocation = new int[2];
+            target.getLocationOnScreen(targetLocation);
+            decor.getLocationOnScreen(decorLocation);
+            int left = targetLocation[0] - decorLocation[0];
+            int top = targetLocation[1] - decorLocation[1];
+            int decorWidth = decor.getWidth();
+            int decorHeight = decor.getHeight();
+            if (decorWidth > 0 && decorHeight > 0) {
+                if (left < 0) {
+                    width += left;
+                    left = 0;
+                }
+                if (top < 0) {
+                    height += top;
+                    top = 0;
+                }
+                if (left + width > decorWidth) {
+                    width = decorWidth - left;
+                }
+                if (top + height > decorHeight) {
+                    height = decorHeight - top;
+                }
+            }
+            if (width < 4 || height < 4) {
+                mask.setVisibility(View.GONE);
+                return;
+            }
+            mask.setVisibility(View.VISIBLE);
+            ViewGroup.LayoutParams raw = mask.getLayoutParams();
+            if (raw instanceof FrameLayout.LayoutParams) {
+                FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) raw;
+                if (params.width == width && params.height == height
+                        && params.leftMargin == left && params.topMargin == top) {
+                    return;
+                }
+                params.width = width;
+                params.height = height;
+                params.leftMargin = left;
+                params.topMargin = top;
+                mask.setLayoutParams(params);
+            }
+        } catch (Throwable ignored) {
+            // 单个遮挡层更新失败不影响其它
+        }
     }
 
     // ==================== 悬浮球 ====================
@@ -1346,8 +1900,8 @@ public final class ModuleEngine {
                 if (target == null || target.view == null) {
                     return;
                 }
-                hideNow(target.view);
                 RuleClient.RuleSpec rule = buildRuleSpec(activity, target, "gone");
+                hideNow(target.view, rule.id);
                 boolean saved = RuleClient.insertRule(activity, rule);
                 if (!saved) {
                     addLocalRule(activity.getPackageName(), rule);
