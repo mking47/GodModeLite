@@ -109,6 +109,7 @@ public final class RuleClient {
             int ballSizeDp = DEFAULT_BALL_SIZE_DP;
             int ballAlpha = DEFAULT_BALL_ALPHA;
             boolean ballVisible = false;
+            boolean a11yConnected = false;
             if (cursor.moveToFirst()) {
                 int jsonIndex = cursor.getColumnIndex("json");
                 int blockingIndex = cursor.getColumnIndex("blocking");
@@ -135,6 +136,10 @@ public final class RuleClient {
                 if (visibleIndex2 >= 0 && !cursor.isNull(visibleIndex2)) {
                     ballVisible = cursor.getInt(visibleIndex2) != 0;
                 }
+                int a11yIndex = cursor.getColumnIndex("a11y_connected");
+                if (a11yIndex >= 0 && !cursor.isNull(a11yIndex)) {
+                    a11yConnected = cursor.getInt(a11yIndex) != 0;
+                }
             }
             // 空值 / 非法值兜底：0 / 48 / 235
             if (ballStyle < 0 || ballStyle > 4) {
@@ -147,7 +152,7 @@ public final class RuleClient {
                 ballAlpha = DEFAULT_BALL_ALPHA;
             }
             return new RuleData(parseRules(json, pkg), blocking, ballStyle, ballSizeDp, ballAlpha,
-                    ballVisible);
+                    ballVisible, a11yConnected);
         } catch (Throwable t) {
             log("查询规则失败 pkg=" + pkg + " : " + t);
             return null;
@@ -243,24 +248,33 @@ public final class RuleClient {
         public final int ballAlpha;
         /** v4：悬浮球是否开启（手动开关；false 时模块不显示任何悬浮球）。 */
         public final boolean ballVisible;
+        /** v5：无障碍服务是否已连接（连接时已有唯一悬浮球，模块不再加球）。 */
+        public final boolean a11yConnected;
 
         public RuleData(List<RuleSpec> rules, boolean blocking) {
-            this(rules, blocking, DEFAULT_BALL_STYLE, DEFAULT_BALL_SIZE_DP, DEFAULT_BALL_ALPHA, false);
+            this(rules, blocking, DEFAULT_BALL_STYLE, DEFAULT_BALL_SIZE_DP, DEFAULT_BALL_ALPHA, false, false);
         }
 
         public RuleData(List<RuleSpec> rules, boolean blocking,
                         int ballStyle, int ballSizeDp, int ballAlpha) {
-            this(rules, blocking, ballStyle, ballSizeDp, ballAlpha, false);
+            this(rules, blocking, ballStyle, ballSizeDp, ballAlpha, false, false);
         }
 
         public RuleData(List<RuleSpec> rules, boolean blocking,
                         int ballStyle, int ballSizeDp, int ballAlpha, boolean ballVisible) {
+            this(rules, blocking, ballStyle, ballSizeDp, ballAlpha, ballVisible, false);
+        }
+
+        public RuleData(List<RuleSpec> rules, boolean blocking,
+                        int ballStyle, int ballSizeDp, int ballAlpha, boolean ballVisible,
+                        boolean a11yConnected) {
             this.rules = rules == null ? new ArrayList<RuleSpec>() : rules;
             this.blocking = blocking;
             this.ballStyle = ballStyle;
             this.ballSizeDp = ballSizeDp;
             this.ballAlpha = ballAlpha;
             this.ballVisible = ballVisible;
+            this.a11yConnected = a11yConnected;
         }
     }
 

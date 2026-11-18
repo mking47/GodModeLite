@@ -155,15 +155,6 @@ public class MainActivity extends Activity {
         checkRootAsync();
         loadAppsAsync(false);
         maybeAutoBackupOnLaunch();
-        // v3「关闭即隐藏」：回到主界面且配置为显示时，恢复本次运行的悬浮球（不写配置）。
-        BlockerService svc = BlockerService.get();
-        if (svc != null && ConfigStore.isBallVisible()) {
-            try {
-                svc.setBallVisible(true);
-            } catch (Throwable ignored) {
-                // 服务实现异常时忽略，不影响界面。
-            }
-        }
         // 从无障碍设置页返回时设置可能稍晚写入，再补一次刷新。
         handler.postDelayed(new Runnable() {
             @Override
@@ -379,17 +370,16 @@ public class MainActivity extends Activity {
 
         // ---- 适配器与监听 ----
         adapter = new AppListAdapter(this);
-        lvApps.setAdapter(adapter);
-        lvApps.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+        adapter.setLayoutMode(ConfigStore.getLayoutMode());
+        adapter.setOnAppClickListener(new AppListAdapter.OnAppClickListener() {
             @Override
-            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                // 分组标题行不可点击（adapter.isEnabled=false），这里再兜一层。
-                AppListAdapter.AppEntry e = adapter.getAppEntry(position);
+            public void onAppClick(AppListAdapter.AppEntry e) {
                 if (e != null) {
                     openDetail(e);
                 }
             }
         });
+        lvApps.setAdapter(adapter);
 
         btnConfigure.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -661,8 +651,8 @@ public class MainActivity extends Activity {
             setStatus(stA11y, "无障碍服务：未开启", COLOR_DANGER);
         }
 
-        // 悬浮球行：显示状态取 ConfigStore + 服务是否在线；样式取配置。
-        boolean ballVisible = ConfigStore.isBallVisible();
+        // v5：悬浮球是否显示只认服务运行期真实状态（只能手动开关，不会自动恢复）。
+        boolean ballVisible = svc != null && svc.isBallVisible();
         String styleName = ConfigStore.ballStyleName(ConfigStore.getBallStyle());
         if (svc == null) {
             setStatus(stBall, "悬浮球：服务未连接 · 样式：" + styleName, COLOR_SUB);
@@ -674,14 +664,6 @@ public class MainActivity extends Activity {
 
         updatingUi = true;
         swBlocking.setChecked(ConfigStore.isBlockingEnabled());
-        // 悬浮球状态以 ConfigStore 为准；服务在线时同步一次，避免服务端状态与开关不一致。
-        if (svc != null) {
-            try {
-                svc.setBallVisible(ballVisible);
-            } catch (Throwable ignored) {
-                // 服务实现异常时忽略，不影响开关本身。
-            }
-        }
         swBall.setChecked(ballVisible);
         updatingUi = false;
 
@@ -699,29 +681,13 @@ public class MainActivity extends Activity {
      * 返回规则总数（避免状态卡再单独遍历一次）。
      */
     private int refreshRuleStats() {
-        List<Rule> all = ConfigStore.allRules();
+        // v5：不拷贝规则列表，直接从 ConfigStore 拿统计
+        int[] stats = ConfigStore.stats();
+        int total = stats[0];
+        int mask = stats[1];
+        int gone = stats[2];
         ruleCounts.clear();
-        int mask = 0;
-        int gone = 0;
-        for (int i = 0; i < all.size(); i++) {
-            Rule r = all.get(i);
-            if (r == null || r.pkg == null || r.pkg.length() == 0) {
-                continue;
-            }
-            int[] c = ruleCounts.get(r.pkg);
-            if (c == null) {
-                c = new int[2];
-                ruleCounts.put(r.pkg, c);
-            }
-            if (r.isGone()) {
-                c[1]++;
-                gone++;
-            } else {
-                c[0]++;
-                mask++;
-            }
-        }
-        int total = mask + gone;
+        ruleCounts.putAll(ConfigStore.packageStats());
         setStatus(stRules, "规则：共 " + total + " · 遮挡 " + mask + " · 真删 " + gone,
                 total > 0 ? COLOR_ACCENT : COLOR_SUB);
         // 把统计写进应用行（getView 里不再查 ConfigStore）。
@@ -824,19 +790,29 @@ public class MainActivity extends Activity {
 
     /** 悬浮球开关：写 ConfigStore，并通知在线服务实时生效。 */
     private void onBallSwitchChanged(boolean on) {
-        ConfigStore.setBallVisible(on);
         BlockerService svc = BlockerService.get();
-        if (svc == null) {
-            toast(on ? "已开启悬浮球：无障碍服务启动后显示" : "已隐藏悬浮球：无障碍服务启动后生效");
-            refreshStatus();
+        if (on && svc == null) {
+            // v5：悬浮球只能手动打开，且必须有无障碍服务才能显示
+            toast("请先开启无障碍服务，再手动打开悬浮球");
+            updatingUi = true;
+            if (swBall != null) {
+                swBall.setChecked(false);
+            }
+            updatingUi = false;
+            ConfigStore.setBallVisible(false);
             return;
         }
-        try {
-            svc.setBallVisible(on);
-            toast(on ? "已显示悬浮球" : "已隐藏悬浮球");
-        } catch (Throwable t) {
-            toast("悬浮球设置失败：服务暂不可用");
+        if (svc != null) {
+            try {
+                svc.setBallVisible(on);
+            } catch (Throwable t) {
+                toast("悬浮球设置失败：服务暂不可用");
+                refreshStatus();
+                return;
+            }
         }
+        ConfigStore.setBallVisible(on);
+        toast(on ? "已显示悬浮球（全局只此一个）" : "已关闭悬浮球：任何界面都不会显示");
         refreshStatus();
     }
 
@@ -1311,19 +1287,23 @@ public class MainActivity extends Activity {
     /** 「更多」菜单：无障碍设置、刷新、打开 LSPosed、自动备份管理。 */
     private void showMoreDialog() {
         final java.util.ArrayList<String> items = new java.util.ArrayList<String>();
+        items.add("布局：" + ConfigStore.layoutModeName(ConfigStore.getLayoutMode()) + "（点击切换）");
         items.add("打开无障碍设置");
         items.add("刷新应用列表");
         if (isPackageInstalled(PKG_LSPOSED)) {
             items.add("打开 LSPosed");
         }
         items.add("自动备份管理");
+        items.add("退出并关闭后台（停止服务）");
         new AlertDialog.Builder(this)
                 .setTitle("更多")
                 .setItems(items.toArray(new String[items.size()]), new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         String item = items.get(which);
-                        if ("打开无障碍设置".equals(item)) {
+                        if (item != null && item.startsWith("布局")) {
+                            toggleLayout();
+                        } else if ("打开无障碍设置".equals(item)) {
                             openA11ySettings();
                         } else if ("刷新应用列表".equals(item)) {
                             lastAppsLoadTime = 0L;
@@ -1333,11 +1313,82 @@ public class MainActivity extends Activity {
                             openLsposed();
                         } else if ("自动备份管理".equals(item)) {
                             showAutoBackupDialog();
+                        } else if ("退出并关闭后台（停止服务）".equals(item)) {
+                            confirmExitAndStop();
                         }
                     }
                 })
                 .setNegativeButton("取消", null)
                 .show();
+    }
+
+    /** 列表 / 瀑布流布局切换。 */
+    private void toggleLayout() {
+        int next = ConfigStore.getLayoutMode() == ConfigStore.LAYOUT_LIST
+                ? ConfigStore.LAYOUT_WATERFALL : ConfigStore.LAYOUT_LIST;
+        ConfigStore.setLayoutMode(next);
+        if (adapter != null) {
+            adapter.setLayoutMode(next);
+            adapter.notifyDataSetChanged();
+        }
+        toast("已切换为" + ConfigStore.layoutModeName(next) + "布局");
+        refreshStatus();
+    }
+
+    /** 退出并关闭后台：停止无障碍服务后结束进程，不会自动启动。 */
+    private void confirmExitAndStop() {
+        new AlertDialog.Builder(this)
+                .setTitle("退出并关闭后台")
+                .setMessage("将关闭悬浮球、停止无障碍服务并结束本应用进程；之后不会自动启动，需要手动打开 App。")
+                .setPositiveButton("退出", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        doExitAndStop();
+                    }
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
+
+    private void doExitAndStop() {
+        BlockerService svc = BlockerService.get();
+        boolean stopped = false;
+        if (svc != null) {
+            try {
+                stopped = svc.shutdownSelf();
+            } catch (Throwable ignored) {
+                stopped = false;
+            }
+        }
+        ConfigStore.setBallVisible(false);
+        ConfigStore.setA11yConnected(false);
+        if (!stopped) {
+            // Android 6 及以下没有 disableSelf，需要用户手动关无障碍，否则杀进程会被系统拉起来
+            toast("请到系统设置关闭无障碍服务后再退出，否则系统会自动重启后台");
+            openA11ySettings();
+            return;
+        }
+        toast("已停止服务，正在退出…");
+        handler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    finishAndRemoveTask();
+                } catch (Throwable ignored) {
+                    finish();
+                }
+                handler.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            android.os.Process.killProcess(android.os.Process.myPid());
+                        } catch (Throwable ignored) {
+                            // 忽略。
+                        }
+                    }
+                }, 250L);
+            }
+        }, 200L);
     }
 
     /** 自动备份管理：目录/保留份数/最近两份 + 立即备份、恢复最近一份、开关。 */

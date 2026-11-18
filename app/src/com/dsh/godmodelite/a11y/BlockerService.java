@@ -118,16 +118,18 @@ public class BlockerService extends AccessibilityService
         }
         foregroundPackage = null;
         foregroundActivity = null;
-        // v3：服务刚连接时清掉会话级临时隐藏，按配置恢复显示
         sessionHidden = false;
-        // 按配置恢复悬浮球（默认显示）
+        // v5：服务连接时绝不自动显示悬浮球，只能由主界面开关手动打开；
+        // 同时清掉上次可能残留的「显示」配置，避免重开应用后又冒出来。
+        ballVisible = false;
         try {
-            ballVisible = ConfigStore.isBallVisible();
+            ConfigStore.setA11yConnected(true);
+            ConfigStore.setBallVisible(false);
         } catch (Throwable t) {
-            ballVisible = false;
+            Log.w(TAG, "更新无障碍连接状态失败", t);
         }
         applyBallVisibility();
-        Log.i(TAG, "无障碍服务已连接，悬浮球=" + ballVisible);
+        Log.i(TAG, "无障碍服务已连接，悬浮球=手动关闭");
     }
 
     @Override
@@ -163,6 +165,12 @@ public class BlockerService extends AccessibilityService
     @Override
     public void onDestroy() {
         cleanupAll();
+        try {
+            ConfigStore.setA11yConnected(false);
+            ConfigStore.setBallVisible(false);
+        } catch (Throwable t) {
+            Log.w(TAG, "更新无障碍断开状态失败", t);
+        }
         if (sInstance == this) {
             sInstance = null;
         }
@@ -176,6 +184,51 @@ public class BlockerService extends AccessibilityService
             handler = null;
         }
         super.onDestroy();
+    }
+
+    /**
+     * v5：主动关闭本应用的后台（退出用）。
+     * - 先隐藏悬浮球、清理窗口、把配置里的显示状态置 false；
+     * - API 24+ 调 AccessibilityService.disableSelf()（反射，编译用 API23）解绑无障碍服务，
+     *   这样杀掉进程后系统不会再把服务拉起来；
+     * - 返回 true 表示已经请求关闭无障碍，调用方可以安全杀进程。
+     */
+    public boolean shutdownSelf() {
+        ensureMainHandler();
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            handler.post(new Runnable() {
+                @Override
+                public void run() {
+                    shutdownSelf();
+                }
+            });
+            return true;
+        }
+        try {
+            ballVisible = false;
+            applyBallVisibility();
+            if (floatingBall != null) {
+                floatingBall.destroy();
+                floatingBall = null;
+            }
+            MaskManager.clear();
+            ConfigStore.setBallVisible(false);
+            ConfigStore.setA11yConnected(false);
+        } catch (Throwable t) {
+            Log.w(TAG, "退出时清理失败", t);
+        }
+        // API 24+ 才有 disableSelf，用反射兼容 API23 编译
+        if (Build.VERSION.SDK_INT >= 24) {
+            try {
+                java.lang.reflect.Method method = AccessibilityService.class.getMethod("disableSelf");
+                method.invoke(this);
+                return true;
+            } catch (Throwable t) {
+                Log.w(TAG, "disableSelf 调用失败", t);
+                return false;
+            }
+        }
+        return false;
     }
 
     // ==================== 悬浮球开关（主界面调用） ====================

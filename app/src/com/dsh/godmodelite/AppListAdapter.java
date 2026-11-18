@@ -53,6 +53,12 @@ public class AppListAdapter extends BaseAdapter {
 
     private static final int TYPE_HEADER = 0;
     private static final int TYPE_APP = 1;
+    private static final int TYPE_WATERFALL = 2;
+
+    /** 应用行点击回调（列表与瀑布流都通过它交给 MainActivity 打开规则页）。 */
+    public interface OnAppClickListener {
+        void onAppClick(AppEntry entry);
+    }
 
     /** 一行应用数据：包名 + 应用名 + 规则统计（由 MainActivity 统计后填入）。 */
     public static class AppEntry {
@@ -111,11 +117,47 @@ public class AppListAdapter extends BaseAdapter {
     private final ExecutorService iconLoader = Executors.newFixedThreadPool(2);
     /** 无图标时的占位方块（所有行共享同一个 Drawable 实例，只读不改）。 */
     private final Drawable placeholder;
+    /** 当前布局：ConfigStore.LAYOUT_LIST / LAYOUT_WATERFALL。 */
+    private int layoutMode = 0;
+    /** 行点击回调。 */
+    private OnAppClickListener appClickListener;
+    /** 展示单元：列表模式 1 行 = 1 个单元；瀑布流模式 1 行 = 1 个标题或最多 2 个应用卡片。 */
+    private final List<Unit> units = new ArrayList<Unit>();
 
     public AppListAdapter(Context ctx) {
         this.ctx = ctx;
         this.iconCache = new LruCache<String, Drawable>(ICON_CACHE_SIZE);
         this.placeholder = rounded(COLOR_PLACEHOLDER, 9);
+    }
+
+    /** 展示单元：标题行或 1~2 个应用卡片。 */
+    private static final class Unit {
+        final ListRow header;
+        final List<AppEntry> apps = new ArrayList<AppEntry>(2);
+
+        Unit(ListRow header) {
+            this.header = header;
+        }
+    }
+
+    /** 设置布局并重建展示单元。 */
+    public void setLayoutMode(int mode) {
+        int next = (mode == 1) ? 1 : 0;
+        if (next == layoutMode) {
+            return;
+        }
+        layoutMode = next;
+        rebuildUnits();
+        notifyDataSetChanged();
+    }
+
+    public int getLayoutMode() {
+        return layoutMode;
+    }
+
+    /** 设置应用行点击回调。 */
+    public void setOnAppClickListener(OnAppClickListener listener) {
+        this.appClickListener = listener;
     }
 
     /** 替换数据（主线程调用）。 */
@@ -124,7 +166,55 @@ public class AppListAdapter extends BaseAdapter {
         if (list != null) {
             rows.addAll(list);
         }
+        rebuildUnits();
         notifyDataSetChanged();
+    }
+
+    /** 根据当前布局把 rows 重新分组成展示单元。 */
+    private void rebuildUnits() {
+        units.clear();
+        if (layoutMode == 0) {
+            // 列表：一行一个单元
+            for (int i = 0; i < rows.size(); i++) {
+                ListRow row = rows.get(i);
+                if (row == null) {
+                    continue;
+                }
+                Unit unit = new Unit(row.header ? row : null);
+                if (!row.header) {
+                    unit.apps.add(row.entry);
+                }
+                units.add(unit);
+            }
+            return;
+        }
+        // 瀑布流：标题独占一行，应用两两配对
+        Unit pending = null;
+        for (int i = 0; i < rows.size(); i++) {
+            ListRow row = rows.get(i);
+            if (row == null) {
+                continue;
+            }
+            if (row.header) {
+                if (pending != null) {
+                    units.add(pending);
+                    pending = null;
+                }
+                units.add(new Unit(row));
+                continue;
+            }
+            if (pending == null) {
+                pending = new Unit(null);
+            }
+            pending.apps.add(row.entry);
+            if (pending.apps.size() >= 2) {
+                units.add(pending);
+                pending = null;
+            }
+        }
+        if (pending != null) {
+            units.add(pending);
+        }
     }
 
     /** 兼容旧调用：只放应用行，不分组。 */
@@ -143,18 +233,21 @@ public class AppListAdapter extends BaseAdapter {
         return new ArrayList<ListRow>(rows);
     }
 
-    /** 取某行的应用数据；标题行或越界返回 null。 */
+    /** 取某个展示单元的应用数据（瀑布流单元取第一个）；标题行或越界返回 null。 */
     public AppEntry getAppEntry(int position) {
-        if (position < 0 || position >= rows.size()) {
+        if (position < 0 || position >= units.size()) {
             return null;
         }
-        ListRow row = rows.get(position);
-        return row == null ? null : row.entry;
+        Unit unit = units.get(position);
+        if (unit == null || unit.apps.isEmpty()) {
+            return null;
+        }
+        return unit.apps.get(0);
     }
 
     @Override
     public int getCount() {
-        return rows.size();
+        return units.size();
     }
 
     @Override
@@ -169,22 +262,28 @@ public class AppListAdapter extends BaseAdapter {
 
     @Override
     public int getViewTypeCount() {
-        return 2;
+        return 3;
     }
 
     @Override
     public int getItemViewType(int position) {
-        if (position < 0 || position >= rows.size()) {
+        if (position < 0 || position >= units.size()) {
             return TYPE_APP;
         }
-        ListRow row = rows.get(position);
-        return (row != null && row.header) ? TYPE_HEADER : TYPE_APP;
+        Unit unit = units.get(position);
+        if (unit == null) {
+            return TYPE_APP;
+        }
+        if (unit.header != null) {
+            return TYPE_HEADER;
+        }
+        return layoutMode == 0 ? TYPE_APP : TYPE_WATERFALL;
     }
 
-    /** 分组标题行不可点击（ListView 不会为它触发 onItemClick）。 */
+    /** 分组标题行不可点击；应用卡片/行内部自己处理点击。 */
     @Override
     public boolean isEnabled(int position) {
-        return getItemViewType(position) == TYPE_APP;
+        return getItemViewType(position) != TYPE_HEADER;
     }
 
     @Override
@@ -194,17 +293,166 @@ public class AppListAdapter extends BaseAdapter {
 
     @Override
     public View getView(int position, View convertView, ViewGroup parent) {
-        if (position < 0 || position >= rows.size()) {
+        if (position < 0 || position >= units.size()) {
             return convertView;
         }
-        ListRow row = rows.get(position);
-        if (row == null) {
+        Unit unit = units.get(position);
+        if (unit == null) {
             return convertView;
         }
-        if (row.header) {
-            return getHeaderView(row, convertView);
+        if (unit.header != null) {
+            return getHeaderView(unit.header, convertView);
         }
-        return getAppView(row.entry, convertView);
+        if (layoutMode == 0) {
+            return getAppView(unit.apps.isEmpty() ? null : unit.apps.get(0), convertView);
+        }
+        return getWaterfallView(unit, convertView);
+    }
+
+    // ===================== 瀑布流（双列卡片） =====================
+
+    private View getWaterfallView(Unit unit, View convertView) {
+        WaterfallHolder holder;
+        if (convertView == null || !(convertView.getTag() instanceof WaterfallHolder)) {
+            LinearLayout row = new LinearLayout(ctx);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setPadding(dp(6), dp(3), dp(6), dp(3));
+            holder = new WaterfallHolder();
+            holder.row = row;
+            holder.cards = new CardHolder[2];
+            for (int i = 0; i < 2; i++) {
+                CardHolder card = buildCard();
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                if (i == 1) {
+                    lp.leftMargin = dp(8);
+                }
+                row.addView(card.root, lp);
+                holder.cards[i] = card;
+            }
+            row.setTag(holder);
+            convertView = row;
+        } else {
+            holder = (WaterfallHolder) convertView.getTag();
+        }
+        for (int i = 0; i < 2; i++) {
+            CardHolder card = holder.cards[i];
+            AppEntry entry = i < unit.apps.size() ? unit.apps.get(i) : null;
+            if (entry == null) {
+                card.root.setVisibility(View.INVISIBLE);
+                continue;
+            }
+            card.root.setVisibility(View.VISIBLE);
+            bindCard(card, entry);
+        }
+        return convertView;
+    }
+
+    /** 单个瀑布流卡片：图标 + 应用名 + 包名 + 徽章（圆角深色卡片）。 */
+    private CardHolder buildCard() {
+        CardHolder card = new CardHolder();
+        LinearLayout root = new LinearLayout(ctx);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setGravity(Gravity.CENTER_HORIZONTAL);
+        root.setPadding(dp(10), dp(10), dp(10), dp(10));
+        root.setBackground(rounded(0xFF1E1E1E, 12));
+
+        ImageView icon = new ImageView(ctx);
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        root.addView(icon, new LinearLayout.LayoutParams(dp(40), dp(40)));
+
+        TextView label = new TextView(ctx);
+        label.setTextSize(13f);
+        label.setTextColor(COLOR_TEXT);
+        label.setSingleLine(true);
+        label.setEllipsize(TextUtils.TruncateAt.END);
+        label.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        labelLp.topMargin = dp(6);
+        root.addView(label, labelLp);
+
+        TextView sub = new TextView(ctx);
+        sub.setTextSize(10f);
+        sub.setTextColor(COLOR_SUB);
+        sub.setSingleLine(true);
+        sub.setEllipsize(TextUtils.TruncateAt.END);
+        sub.setGravity(Gravity.CENTER);
+        root.addView(sub, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout badges = new LinearLayout(ctx);
+        badges.setOrientation(LinearLayout.HORIZONTAL);
+        badges.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams badgesLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        badgesLp.topMargin = dp(4);
+        root.addView(badges, badgesLp);
+
+        TextView maskBadge = newBadge(COLOR_ACCENT);
+        TextView goneBadge = newBadge(COLOR_DANGER);
+        badges.addView(maskBadge, badgeLp());
+        badges.addView(goneBadge, badgeLp());
+
+        card.root = root;
+        card.icon = icon;
+        card.label = label;
+        card.sub = sub;
+        card.badges = badges;
+        card.maskBadge = maskBadge;
+        card.goneBadge = goneBadge;
+        return card;
+    }
+
+    private void bindCard(CardHolder card, final AppEntry e) {
+        card.label.setText(e.label);
+        String sub = e.totalCount() > 0 ? e.totalCount() + " 条规则" : e.pkg;
+        card.sub.setText(sub);
+        if (e.maskCount > 0) {
+            card.maskBadge.setVisibility(View.VISIBLE);
+            card.maskBadge.setText("遮挡 " + e.maskCount);
+        } else {
+            card.maskBadge.setVisibility(View.GONE);
+        }
+        if (e.goneCount > 0) {
+            card.goneBadge.setVisibility(View.VISIBLE);
+            card.goneBadge.setText("真删 " + e.goneCount);
+        } else {
+            card.goneBadge.setVisibility(View.GONE);
+        }
+        card.icon.setTag(e.pkg);
+        Drawable cached = iconCache.get(e.pkg);
+        if (cached != null) {
+            card.icon.setImageDrawable(cached);
+        } else {
+            card.icon.setImageDrawable(placeholder);
+            requestIcon(e.pkg, card.icon);
+        }
+        card.root.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (appClickListener != null) {
+                    appClickListener.onAppClick(e);
+                }
+            }
+        });
+    }
+
+    /** 瀑布流整行复用的两个卡片槽。 */
+    private static class WaterfallHolder {
+        LinearLayout row;
+        CardHolder[] cards;
+    }
+
+    /** 瀑布流单卡片内的控件。 */
+    private static class CardHolder {
+        LinearLayout root;
+        ImageView icon;
+        TextView label;
+        TextView sub;
+        LinearLayout badges;
+        TextView maskBadge;
+        TextView goneBadge;
     }
 
     // ===================== 分组标题行 =====================
@@ -312,6 +560,15 @@ public class AppListAdapter extends BaseAdapter {
             holder.goneBadge.setVisibility(View.GONE);
         }
 
+        final AppEntry clickEntry = e;
+        convertView.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (appClickListener != null) {
+                    appClickListener.onAppClick(clickEntry);
+                }
+            }
+        });
         // 图标：先查缓存（getView 里绝不做 PackageManager 查询），没有再异步加载。
         holder.icon.setTag(e.pkg);
         Drawable cached = iconCache.get(e.pkg);

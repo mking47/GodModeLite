@@ -89,6 +89,8 @@ public final class ModuleEngine {
     private static int sBallAlpha = RuleClient.DEFAULT_BALL_ALPHA;
     /** v4：悬浮球是否开启（来自 provider 的 ball_visible 列；默认关，只能手动开）。 */
     private static boolean sBallVisible = false;
+    /** v5：无障碍服务是否已连接（连接时全局已有唯一悬浮球，模块不再加球，避免两个球）。 */
+    private static boolean sA11yConnected = false;
 
     /** 图层选择时边框颜色按深度循环。 */
     private static final int[] DEPTH_COLORS = {
@@ -862,9 +864,10 @@ public final class ModuleEngine {
         if (style < BALL_STYLE_EYE || style > BALL_STYLE_SLASH) {
             style = RuleClient.DEFAULT_BALL_STYLE;
         }
-        boolean visible = data.ballVisible;
+        boolean visible = data.ballVisible && !data.a11yConnected;
         boolean visibilityChanged = visible != sBallVisible;
         sBallVisible = visible;
+        sA11yConnected = data.a11yConnected;
         if (style == sBallStyle && sizeDp == sBallSizeDp && alpha == sBallAlpha && !visibilityChanged) {
             return;
         }

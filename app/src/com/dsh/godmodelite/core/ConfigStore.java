@@ -25,6 +25,8 @@ public final class ConfigStore {
     private static final String KEY_BALL_VISIBLE = "ball_visible";
     /** v4：开启屏蔽时自动备份规则开关。 */
     private static final String KEY_AUTO_BACKUP = "auto_backup";
+    /** v5：应用列表布局（0 列表 / 1 瀑布流）。 */
+    private static final String KEY_LAYOUT = "layout_mode";
     private static final String KEY_BALL_X = "ball_x";
     private static final String KEY_BALL_Y = "ball_y";
     // ===== v3 新增键 =====
@@ -70,6 +72,13 @@ public final class ConfigStore {
     /** 筛选：仅显示有规则的应用。 */
     public static final int FILTER_WITH_RULES = 1;
 
+    // ===== 应用列表布局（v5） =====
+
+    /** 列表布局：单列。 */
+    public static final int LAYOUT_LIST = 0;
+    /** 瀑布流布局：双列卡片。 */
+    public static final int LAYOUT_WATERFALL = 1;
+
     private static final Object LOCK = new Object();
     private static SharedPreferences sPrefs;
     private static final List<Rule> sRules = new ArrayList<Rule>();
@@ -78,6 +87,10 @@ public final class ConfigStore {
     private static boolean sBallVisible = false;
     /** v4：开启屏蔽时是否自动备份（默认开）。 */
     private static boolean sAutoBackup = true;
+    /** v5：应用列表布局模式（0 列表 / 1 瀑布流）。 */
+    private static int sLayoutMode = 0;
+    /** v5：无障碍服务当前是否已连接（运行期状态，不持久化；给跨进程模块判断是否已有悬浮球）。 */
+    private static boolean sA11yConnected = false;
     /** 悬浮球上次拖动后的屏幕坐标；BALL_POS_UNSET 表示还没拖过。 */
     private static int sBallX = BALL_POS_UNSET;
     private static int sBallY = BALL_POS_UNSET;
@@ -115,6 +128,8 @@ public final class ConfigStore {
         sBlocking = true;
         sBallVisible = false;
         sAutoBackup = true;
+        sLayoutMode = LAYOUT_LIST;
+        sA11yConnected = false;
         sBallX = BALL_POS_UNSET;
         sBallY = BALL_POS_UNSET;
         sBallStyle = BALL_STYLE_EYE;
@@ -128,6 +143,7 @@ public final class ConfigStore {
         sBlocking = sPrefs.getBoolean(KEY_BLOCKING, true);
         sBallVisible = sPrefs.getBoolean(KEY_BALL_VISIBLE, false);
         sAutoBackup = sPrefs.getBoolean(KEY_AUTO_BACKUP, true);
+        sLayoutMode = sPrefs.getInt(KEY_LAYOUT, LAYOUT_LIST);
         sBallX = sPrefs.getInt(KEY_BALL_X, BALL_POS_UNSET);
         sBallY = sPrefs.getInt(KEY_BALL_Y, BALL_POS_UNSET);
         sBallStyle = normalizeStyle(sPrefs.getInt(KEY_BALL_STYLE, BALL_STYLE_EYE));
@@ -530,6 +546,46 @@ public final class ConfigStore {
         return mode;
     }
 
+    // ===================== 应用列表布局（v5） =====================
+
+    /** 应用列表布局：0 列表 / 1 瀑布流。 */
+    public static int getLayoutMode() {
+        synchronized (LOCK) {
+            return sLayoutMode;
+        }
+    }
+
+    /** 设置应用列表布局并持久化。 */
+    public static void setLayoutMode(int mode) {
+        synchronized (LOCK) {
+            sLayoutMode = (mode == LAYOUT_WATERFALL) ? LAYOUT_WATERFALL : LAYOUT_LIST;
+            if (sPrefs != null) {
+                sPrefs.edit().putInt(KEY_LAYOUT, sLayoutMode).apply();
+            }
+        }
+    }
+
+    /** 布局名称（给按钮/菜单显示）。 */
+    public static String layoutModeName(int mode) {
+        return mode == LAYOUT_WATERFALL ? "瀑布流" : "列表";
+    }
+
+    // ===================== 无障碍连接状态（v5，运行期） =====================
+
+    /** 无障碍服务是否已连接（运行期状态，重启进程后为 false）。 */
+    public static boolean isA11yConnected() {
+        synchronized (LOCK) {
+            return sA11yConnected;
+        }
+    }
+
+    /** 无障碍服务连接/断开时由 BlockerService 更新（不持久化）。 */
+    public static void setA11yConnected(boolean connected) {
+        synchronized (LOCK) {
+            sA11yConnected = connected;
+        }
+    }
+
     // ===================== 自动备份（v4） =====================
 
     /** 开启屏蔽时是否自动备份规则（默认 true）。 */
@@ -547,6 +603,52 @@ public final class ConfigStore {
                 sPrefs.edit().putBoolean(KEY_AUTO_BACKUP, on).apply();
             }
         }
+    }
+
+    // ===================== 规则统计（v5 优化：不拷贝规则列表） =====================
+
+    /** 一次遍历统计：返回 [总数, 遮挡数, 真删数]，不创建规则拷贝。 */
+    public static int[] stats() {
+        synchronized (LOCK) {
+            int mask = 0;
+            int gone = 0;
+            for (int i = 0; i < sRules.size(); i++) {
+                Rule r = sRules.get(i);
+                if (r == null) {
+                    continue;
+                }
+                if (r.isGone()) {
+                    gone++;
+                } else {
+                    mask++;
+                }
+            }
+            return new int[]{mask + gone, mask, gone};
+        }
+    }
+
+    /** 每个包的规则统计：包名 -> [遮挡数, 真删数]，不创建规则拷贝。 */
+    public static java.util.Map<String, int[]> packageStats() {
+        java.util.Map<String, int[]> out = new java.util.HashMap<String, int[]>();
+        synchronized (LOCK) {
+            for (int i = 0; i < sRules.size(); i++) {
+                Rule r = sRules.get(i);
+                if (r == null || r.pkg == null || r.pkg.length() == 0) {
+                    continue;
+                }
+                int[] c = out.get(r.pkg);
+                if (c == null) {
+                    c = new int[2];
+                    out.put(r.pkg, c);
+                }
+                if (r.isGone()) {
+                    c[1]++;
+                } else {
+                    c[0]++;
+                }
+            }
+        }
+        return out;
     }
 
     // ===================== 规则统计（v3 状态卡用） =====================

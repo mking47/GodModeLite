@@ -5,33 +5,31 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- 盾牌底 -->
+    <!-- 眼睛外轮廓（安全区内） -->
     <path
-        android:fillColor="#0C1E1A"
-        android:pathData="M54,25.5 L76.8,34 L76.8,56.4 L54,85.4 L31.2,56.4 L31.2,34 Z" />
-    <!-- 盾牌描边 -->
+        android:fillColor="#F2F8FF"
+        android:pathData="M28,54 Q54,32 80,54 Q54,76 28,54 Z" />
+    <!-- 虹膜 -->
     <path
-        android:pathData="M54,25.5 L76.8,34 L76.8,56.4 L54,85.4 L31.2,56.4 L31.2,34 Z"
+        android:fillColor="#142822"
+        android:pathData="M54,45 a9,9 0 1,0 0.01,0 z" />
+    <path
+        android:pathData="M54,45 a9,9 0 1,0 0.01,0 z"
         android:strokeColor="#4CAF50"
-        android:strokeWidth="1.9"
-        android:strokeLineJoin="round" />
-    <!-- 眼睛 -->
-    <path
-        android:fillColor="#F0F8FF"
-        android:pathData="M37.8,54 Q54,43 70.2,54 Q54,65 37.8,54 Z" />
+        android:strokeWidth="1.1" />
     <!-- 瞳孔 -->
     <path
-        android:fillColor="#0A1218"
-        android:pathData="M54,49.1 a4.9,4.9 0 1,0 0.01,0 z" />
-    <!-- 禁止斜杠（深色描边 + 红色线） -->
+        android:fillColor="#080E14"
+        android:pathData="M54,49.6 a4.4,4.4 0 1,0 0.01,0 z" />
+    <!-- 斜杠：深色描边 + 红色 -->
     <path
-        android:pathData="M38.3,73.0 L69.7,36.4"
-        android:strokeColor="#0A1218"
-        android:strokeWidth="4.2"
+        android:pathData="M30,74 L78,34"
+        android:strokeColor="#080E14"
+        android:strokeWidth="5.2"
         android:strokeLineCap="round" />
     <path
-        android:pathData="M38.3,73.0 L69.7,36.4"
+        android:pathData="M30,74 L78,34"
         android:strokeColor="#FF5252"
-        android:strokeWidth="2.6"
+        android:strokeWidth="3.2"
         android:strokeLineCap="round" />
 </vector>

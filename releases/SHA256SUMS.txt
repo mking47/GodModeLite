@@ -1,4 +1,6 @@
 d1377ee5b7fd0cc63bb52ae04823a7a4c8631b2f3fcfbbc8411192725ccbdb3f  releases/GodModeLite-3.0.apk
 92eff865545f9753c6578b53b7e6fcfc3a74927ac4565cb378d24a880f933014  releases/GodModeLite-4.0.apk
+982a413e91e9697788e5a8fc79fb7f136291bdfcf7ca8e318dbf8906e5d2e46f  releases/GodModeLite-5.0.apk
 ff47ddedf20369ee1de85f9454ced2d16069168218d10407e04518e8e6903360  releases/source-v3.0.zip
 e77dfdf7dae2e4c88b04ba5c159e8ca1e95095a159d3759484cb0fa9c2ddac4a  releases/source-v4.0.zip
+548692d7d2416fe7a333ff4aa72246ea101b9437afab333af8fe45676785343e  releases/source-v5.0.zip
